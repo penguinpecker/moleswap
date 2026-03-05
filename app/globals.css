@@ -362,3 +362,52 @@
     -2px 2px 0 #49201e,
     2px 2px 0 #49201e;
 }
+
+/* ═══ PushChain Wallet Button — MoleSwap Theme Override ═══ */
+.moleswap-wallet-btn {
+  display: flex;
+  align-items: center;
+}
+
+/* Override Push SDK button styles to match MoleSwap pixel theme */
+.moleswap-wallet-btn button,
+.moleswap-wallet-btn [class*="Button"],
+.moleswap-wallet-btn [class*="button"],
+.moleswap-wallet-btn [class*="account"],
+.moleswap-wallet-btn [class*="Account"],
+.moleswap-wallet-btn [class*="connect"],
+.moleswap-wallet-btn [class*="Connect"],
+.moleswap-wallet-btn [class*="universal"],
+.moleswap-wallet-btn [class*="Universal"] {
+  font-family: 'ThaleahFat', sans-serif !important;
+  font-size: 1.25rem !important;
+  letter-spacing: 0.1em !important;
+  text-transform: uppercase !important;
+  color: #000 !important;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  padding: 0.25rem 0.5rem !important;
+  cursor: pointer !important;
+  transition: transform 0.15s !important;
+  image-rendering: pixelated !important;
+}
+
+.moleswap-wallet-btn button:hover,
+.moleswap-wallet-btn [class*="Button"]:hover {
+  transform: scale(1.02) !important;
+}
+
+/* Hide any Push SDK logos/icons inside the button — we use our own wallet icon */
+.moleswap-wallet-btn button svg,
+.moleswap-wallet-btn button img:not([alt="Wallet"]) {
+  display: none !important;
+}
+
+/* Make Push SDK text match */
+.moleswap-wallet-btn button span,
+.moleswap-wallet-btn button div {
+  font-family: 'ThaleahFat', sans-serif !important;
+  color: #000 !important;
+}
