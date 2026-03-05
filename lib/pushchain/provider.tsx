@@ -1,39 +1,34 @@
 "use client";
-import React, { createContext, useContext } from "react";
+import React from "react";
 import {
   PushUniversalWalletProvider,
-  PushUniversalAccountButton,
   usePushWalletContext,
   usePushChainClient,
   PushUI,
 } from "@pushchain/ui-kit";
 
-// Re-export the official components
-export { PushUniversalAccountButton, usePushWalletContext, usePushChainClient, PushUI };
+// Re-export hooks for convenience
+export { usePushWalletContext, usePushChainClient, PushUI };
 
-// Convenience hook that wraps the official hooks
+// Convenience hook wrapping the official hooks
 export function usePushWallet() {
   const walletCtx = usePushWalletContext();
   const { pushChainClient } = usePushChainClient();
 
   const isConnected = walletCtx?.connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
-  const address = pushChainClient?.universal?.account || null;
+  const address = walletCtx?.universalAccount?.address || pushChainClient?.universal?.account || null;
 
   return {
     address,
     isConnected,
-    isConnecting: walletCtx?.connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTING,
+    isConnecting:
+      walletCtx?.connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTING ||
+      walletCtx?.connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.AUTHENTICATING,
     connectionStatus: walletCtx?.connectionStatus,
     pushChainClient,
-    // For backward compat with code that calls connect()
-    connect: () => {
-      // The PushUniversalAccountButton handles connection UI
-      // This is a no-op - connection is handled by the button component
-      console.log("Use <PushUniversalAccountButton /> for wallet connection");
-    },
-    disconnect: () => {
-      walletCtx?.handleLogout?.();
-    },
+    universalAccount: walletCtx?.universalAccount,
+    connect: () => walletCtx?.handleConnectToPushWallet?.(),
+    disconnect: () => walletCtx?.handleUserLogOutEvent?.(),
   };
 }
 
@@ -44,14 +39,10 @@ interface Props {
 
 export function PushChainWalletProvider({ children, network = "testnet" }: Props) {
   const walletConfig = {
-    network: network === "mainnet"
-      ? PushUI.CONSTANTS.PUSH_NETWORK.MAINNET
-      : PushUI.CONSTANTS.PUSH_NETWORK.TESTNET,
-    login: {
-      email: true,
-      google: true,
-      wallet: { enabled: true },
-    },
+    network:
+      network === "mainnet"
+        ? PushUI.CONSTANTS.PUSH_NETWORK.MAINNET
+        : PushUI.CONSTANTS.PUSH_NETWORK.TESTNET,
   };
 
   return (

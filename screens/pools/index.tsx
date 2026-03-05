@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import Image from "next/image";
 import { NavBar, BackgroundImage } from "../shared";
 import { Plus, Minus, Droplets, RefreshCw, ArrowDown, ExternalLink } from "lucide-react";
-import { usePushWallet, PushUniversalAccountButton } from "@/lib/pushchain/provider";
+import { usePushWalletContext, usePushChainClient, PushUI } from "@pushchain/ui-kit";
 import {
   getAllPools, addLiquidity, removeLiquidity, getSwapQuote,
   getPairReserves, approveToken, AMM_ROUTER, AMM_FACTORY,
@@ -27,7 +27,10 @@ const PoolsPage = () => {
 export default PoolsPage;
 
 const PoolsContent = () => {
-  const { isConnected, address } = usePushWallet();
+  const walletCtx = usePushWalletContext();
+  const { pushChainClient } = usePushChainClient();
+  const isConnected = walletCtx?.connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
+  const address = walletCtx?.universalAccount?.address || pushChainClient?.universal?.account || null;
   const [activeTab, setActiveTab] = useState<"pools" | "add" | "remove">("pools");
   const [pools, setPools] = useState<Pool[]>([]);
   const [loading, setLoading] = useState(false);
@@ -95,9 +98,12 @@ const PoolsContent = () => {
               <p className="font-family-ThaleahFat text-peach-300 text-center text-2xl tracking-wider">
                 CONNECT WALLET TO VIEW POOLS
               </p>
-              <div className="moleswap-pools-connect">
-                <PushUniversalAccountButton />
-              </div>
+              <button
+                onClick={() => walletCtx?.handleConnectToPushWallet?.()}
+                className="font-family-ThaleahFat bg-peach-500 border-3 border-[#523525] rounded-lg px-8 py-4 text-xl tracking-wider text-black shadow-[0px_-6px_0px_0px_#C97E00_inset,0px_7.5px_0px_0px_rgba(255,212,122,0.6)_inset] cursor-pointer transition-all hover:scale-[1.02]"
+              >
+                CONNECT WALLET
+              </button>
             </div>
           ) : !contractsDeployed ? (
             <div className="flex flex-col items-center gap-4 py-12">
