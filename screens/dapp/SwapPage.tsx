@@ -374,11 +374,14 @@ export const SwapPage = ({
         }
       }
 
-      // Execute swap via PushChain AMM
+      // Execute swap via PushChain AMM (3-step: wrap → approve → swap)
       onSwapStart?.();
       hasStarted = true;
+      setCurrentStep("Preparing swap...");
 
       const { executeSwap: pushSwap } = await import("@/lib/pushchain/amm");
+      
+      setCurrentStep("Wrapping PC → WPC...");
       const swapResult = await pushSwap({
         pushChainClient: pushWallet.pushChainClient,
         tokenIn: swapData.fromToken,
@@ -390,9 +393,10 @@ export const SwapPage = ({
       });
 
       if (!swapResult.success || !swapResult.txHash) {
-        throw new Error("Swap transaction failed or was rejected");
+        throw new Error(swapResult.error || "Swap transaction failed or was rejected");
       }
 
+      setCurrentStep("Swap complete!");
       finalTxHashes = [swapResult.txHash];
       setTxHashes([swapResult.txHash]);
 

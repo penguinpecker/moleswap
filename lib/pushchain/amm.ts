@@ -138,18 +138,89 @@ export async function executeSwap(params: {
   recipient: string;
   fee?: number;
   deadline?: number;
-}): Promise<{ txHash: string; success: boolean }> {
+}): Promise<{ txHash: string; success: boolean; error?: string }> {
   try {
-    const actualIn = params.tokenIn === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenIn;
+    const isNativeIn = params.tokenIn === ethers.ZeroAddress;
+    const actualIn = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
     const actualOut = params.tokenOut === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenOut;
     const pool = findPool(actualIn, actualOut);
     const fee = params.fee || pool?.fee || 500;
 
     const amountIn = BigInt(params.amountIn);
-    // Apply 1% slippage to amountOutMin
-    const amountOutMin = BigInt(params.amountOutMin) * 99n / 100n;
+    const amountOutMin = BigInt(params.amountOutMin) * 95n / 100n; // 5% slippage
     const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1800;
 
+    console.log("[MoleSwap] executeSwap:", {
+      isNativeIn,
+      tokenIn: actualIn.slice(0,10),
+      tokenOut: actualOut.slice(0,10),
+      amountIn: amountIn.toString(),
+      fee,
+    });
+
+    // For native PC swaps, we need to:
+    // 1. Wrap PC → WPC
+    // 2. Approve WPC for Router
+    // 3. Swap WPC → target token
+
+    // ═══ STEP 1: Wrap native PC → WPC (if native input) ═══
+    if (isNativeIn) {
+      console.log("[MoleSwap] Step 1: Wrapping PC → WPC...");
+      const wpcIface = new ethers.Interface(["function deposit() payable"]);
+      const wrapData = wpcIface.encodeFunctionData("deposit");
+
+      if (params.pushChainClient?.universal?.sendTransaction) {
+        const wrapTx = await params.pushChainClient.universal.sendTransaction({
+          to: CONTRACTS.WPC,
+          value: amountIn,
+          data: wrapData,
+        });
+        console.log("[MoleSwap] Wrap tx:", wrapTx);
+        // Wait a moment for wrap to confirm
+        await new Promise(r => setTimeout(r, 3000));
+      } else if (typeof window !== "undefined" && (window as any).ethereum) {
+        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const signer = await provider.getSigner();
+        const tx = await signer.sendTransaction({
+          to: CONTRACTS.WPC,
+          value: amountIn,
+          data: wrapData,
+        });
+        await tx.wait();
+        console.log("[MoleSwap] Wrap confirmed:", tx.hash);
+      } else {
+        throw new Error("No wallet available for wrapping");
+      }
+    }
+
+    // ═══ STEP 2: Approve token for Router ═══
+    console.log("[MoleSwap] Step 2: Approving token for Router...");
+    const tokenToApprove = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
+    
+    if (params.pushChainClient?.universal?.sendTransaction) {
+      const approveIface = new ethers.Interface(["function approve(address spender, uint256 amount) returns (bool)"]);
+      const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
+      const approveData = approveIface.encodeFunctionData("approve", [CONTRACTS.SWAP_ROUTER, MAX_UINT]);
+      
+      const approveTx = await params.pushChainClient.universal.sendTransaction({
+        to: tokenToApprove,
+        value: BigInt(0),
+        data: approveData,
+      });
+      console.log("[MoleSwap] Approve tx:", approveTx);
+      await new Promise(r => setTimeout(r, 3000));
+    } else if (typeof window !== "undefined" && (window as any).ethereum) {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      const token = new ethers.Contract(tokenToApprove, ERC20_ABI, signer);
+      const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
+      const tx = await token.approve(CONTRACTS.SWAP_ROUTER, MAX_UINT);
+      await tx.wait();
+      console.log("[MoleSwap] Approve confirmed:", tx.hash);
+    }
+
+    // ═══ STEP 3: Execute swap (NO native value — we already wrapped) ═══
+    console.log("[MoleSwap] Step 3: Executing swap...");
     const iface = new ethers.Interface(SWAP_ROUTER_ABI);
     const swapCalldata = iface.encodeFunctionData("exactInputSingle", [{
       tokenIn: actualIn,
@@ -161,46 +232,38 @@ export async function executeSwap(params: {
       sqrtPriceLimitX96: 0,
     }]);
 
-    const isNativeIn = params.tokenIn === ethers.ZeroAddress;
-    const txValue = isNativeIn ? amountIn : BigInt(0);
+    let txHash = "";
 
-    // 1. If not native, approve token first
-    if (!isNativeIn) {
-      try {
-        const approveHash = await approveToken(params.tokenIn, params.amountIn);
-        if (approveHash) console.log("Approved:", approveHash);
-      } catch (e) {
-        console.warn("Approve may have failed, trying swap anyway:", e);
-      }
-    }
-
-    // 2. Execute via PushChain universal transaction
     if (params.pushChainClient?.universal?.sendTransaction) {
-      const txHash = await params.pushChainClient.universal.sendTransaction({
+      txHash = await params.pushChainClient.universal.sendTransaction({
         to: CONTRACTS.SWAP_ROUTER,
-        value: txValue,
+        value: BigInt(0), // NOT sending native — tokens are already wrapped
         data: swapCalldata,
       });
-      return { txHash: txHash || "", success: true };
-    }
-
-    // 3. Fallback: direct EVM call via browser wallet
-    if (typeof window !== "undefined" && (window as any).ethereum) {
+      console.log("[MoleSwap] Swap tx:", txHash);
+    } else if (typeof window !== "undefined" && (window as any).ethereum) {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();
       const tx = await signer.sendTransaction({
         to: CONTRACTS.SWAP_ROUTER,
-        value: txValue,
+        value: BigInt(0),
         data: swapCalldata,
       });
       const receipt = await tx.wait();
-      return { txHash: receipt?.hash || tx.hash, success: true };
+      txHash = receipt?.hash || tx.hash;
+      console.log("[MoleSwap] Swap confirmed:", txHash);
+    } else {
+      throw new Error("No wallet available for swap execution");
     }
 
-    throw new Error("No wallet available for swap execution");
+    if (!txHash) {
+      throw new Error("Swap transaction returned empty hash");
+    }
+
+    return { txHash, success: true };
   } catch (err: any) {
-    console.error("Swap error:", err);
-    return { txHash: "", success: false };
+    console.error("[MoleSwap] Swap error:", err?.message || err);
+    return { txHash: "", success: false, error: err?.message || "Unknown swap error" };
   }
 }
 
