@@ -95,7 +95,9 @@ const PoolsContent = () => {
               <p className="font-family-ThaleahFat text-peach-300 text-center text-2xl tracking-wider">
                 CONNECT WALLET TO VIEW POOLS
               </p>
-              <PushUniversalAccountButton />
+              <div className="moleswap-pools-connect">
+                <PushUniversalAccountButton />
+              </div>
             </div>
           ) : !contractsDeployed ? (
             <div className="flex flex-col items-center gap-4 py-12">
