@@ -1421,8 +1421,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                 </div>
 
                 {/* To */}
-                <button
+                <div
                   onClick={() => openSelect("to")}
+                  role="button"
+                  tabIndex={0}
                   className="relative z-10 mx-auto w-full cursor-pointer rounded-lg px-6 py-4 text-center transition-all hover:scale-[1.02] sm:w-[90%]"
                 >
                   <div className="flex items-center justify-start gap-4">
@@ -1492,7 +1494,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                     height={200}
                     className="absolute inset-0 left-0 z-[-1] h-full w-full"
                   />
-                </button>
+                </div>
 
                 {/* Amount */}
                 <div className="relative z-10 mx-auto w-full rounded-lg px-6 py-4 text-center sm:w-[90%]">

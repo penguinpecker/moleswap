@@ -6,6 +6,7 @@ import Image from "next/image";
 import { relayClient } from "@/lib/relay/client";
 import { getWalletClient } from "@/lib/wallet/walletClient";
 import type { RelayCurrency, RelayChain } from "@/lib/relay/api";
+import { usePushWallet } from "@/lib/pushchain/provider";
 
 interface SwapPageProps {
   onNext: (step: DappStep, data?: any) => void;

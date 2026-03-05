@@ -1,4 +1,4 @@
-import type { ChainVM } from "@relayprotocol/relay-sdk";
+import type { ChainVM } from "./types";
 import type { WalletAdapter } from "./types";
 import { EVMWalletAdapter } from "./evm";
 

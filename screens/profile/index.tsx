@@ -1,10 +1,13 @@
+"use client";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import Link from "next/link";
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { NavBar } from "../shared";
 import { Copy, X, MessageCircle, Share2 } from "lucide-react";
 import { FaXTwitter } from "react-icons/fa6";
+import { usePushWallet } from "@/lib/pushchain/provider";
+import { getOrCreateUser } from "@/lib/supabase/api";
 const ProfilePage = () => {
   return (
     <div className="relative flex h-screen w-full flex-col items-center gap-4">
@@ -99,6 +102,22 @@ const BackgroundImage = () => {
 };
 
 const ProfileCard = () => {
+  const { address, isConnected } = usePushWallet();
+  const [profile, setProfile] = useState<any>(null);
+
+  useEffect(() => {
+    if (isConnected && address) {
+      getOrCreateUser(address).then((u) => u && setProfile(u)).catch(console.error);
+    }
+  }, [isConnected, address]);
+
+  const displayName = profile?.username || (address ? `${address.slice(0, 16).toUpperCase()}` : "HIKARU NAKAMOTO");
+  const displayXP = profile?.total_xp ?? 200;
+  const displayAddress = address?.toUpperCase() || "0XCOF37237279H29210F9054979";
+  const displayBalance = profile?.mole_balance ?? 0;
+  const displayRank = profile?.current_rank ? `#${profile.current_rank}` : "#2339";
+  const displayBestRank = profile?.best_rank ? `#${profile.best_rank}` : "#2339";
+
   return (
     <div className="relative flex w-full flex-col items-center p-2 pt-12 sm:w-[500px] sm:p-12 sm:pt-28">
       <Image
@@ -133,7 +152,7 @@ const ProfileCard = () => {
           <div className="flex flex-1 flex-col rounded-lg border-r-2 border-[#5D2C28]">
             {/* Player Name */}
             <div className="font-family-ThaleahFat w-[80%] border-t-2 border-r-2 border-[#140901] bg-[#5D2C28] pl-2 text-xs font-normal text-white sm:pl-4 sm:text-2xl">
-              HIKARU NAKAMOTO
+              {displayName}
             </div>
 
             {/* XP Bar */}
@@ -144,7 +163,7 @@ const ProfileCard = () => {
                 <div className="absolute top-0 h-0.5 w-full bg-[#FFE9B2] sm:h-1"></div>
                 {/* XP Text */}
                 <span className="font-family-ThaleahFat pl-1 text-[10px] font-normal text-white sm:pl-4 sm:text-xl">
-                  XP - 200
+                  XP - {displayXP}
                 </span>
               </div>
             </div>
@@ -169,7 +188,7 @@ const ProfileCard = () => {
           {/* Address with Copy Button */}
           <div className="mb-1 flex flex-wrap items-center justify-between gap-1 sm:mb-2 sm:gap-2">
             <span className="text-peach-300 font-family-ThaleahFat font-base text-xl break-all select-text text-shadow-black">
-              0XCOF37237279H29210F9054979
+              {displayAddress}
             </span>
             <button className="hover:bg-accent shrink-0 cursor-pointer border-2 border-black p-1 sm:p-2">
               <Copy className="h-3 w-3 text-black sm:h-4 sm:w-4" />
@@ -178,7 +197,7 @@ const ProfileCard = () => {
 
           {/* Balance */}
           <span className="block text-left text-[10px] font-normal text-white sm:text-base">
-            Balance: 0 MOLE
+            Balance: {displayBalance} MOLE
           </span>
         </div>
         {/* Leaderboard Rank */}
@@ -199,7 +218,7 @@ const ProfileCard = () => {
                 CURRENT RANK
               </div>
               <div className="text-peach-300 font-family-ThaleahFat relative z-20 -mt-1 w-full text-center text-base font-thin text-shadow-black sm:-mt-2 sm:text-2xl">
-                #2339
+                {displayRank}
               </div>
             </div>
             <div className="relative w-full p-2 sm:p-4">
@@ -214,7 +233,7 @@ const ProfileCard = () => {
                 ALL TIME BEST
               </div>
               <div className="text-peach-300 font-family-ThaleahFat relative z-20 -mt-1 w-full text-center text-base font-thin text-shadow-black sm:-mt-2 sm:text-2xl">
-                #2339
+                {displayBestRank}
               </div>
             </div>
           </div>

@@ -1,19 +1,27 @@
-import { createClient, MAINNET_RELAY_API, TESTNET_RELAY_API } from "@relayprotocol/relay-sdk";
-import { RELAY_API } from "./api";
+/**
+ * Swap Client - Now uses PushChain AMM
+ * Keeps relayClient export for backward compat
+ */
 
-// Determine which API to use based on the RELAY_API constant
-// This ensures consistency between API calls and client configuration
-const isTestnet = RELAY_API.includes("testnet");
+import { getSwapQuote, executeSwap as pushExecuteSwap } from "@/lib/pushchain/amm";
 
-// Create a singleton Relay client at module load.
-// Uses testnet API if testnet mode is detected, otherwise mainnet.
-// Set a descriptive source for attribution/analytics.
-export const relayClient = createClient({
-  baseApiUrl: isTestnet ? TESTNET_RELAY_API : MAINNET_RELAY_API,
-  source: process.env.NEXT_PUBLIC_RELAY_SOURCE || "swap-surge-play",
-  // Optionally configure chains dynamically with configureDynamicChains()
-});
+export const relayClient = {
+  actions: {
+    getQuote: async (params: any) => {
+      const quote = await getSwapQuote({
+        tokenIn: params.currency || params.fromToken,
+        tokenOut: params.toCurrency || params.toToken,
+        amountIn: params.amount || "0",
+      });
+      return quote || {};
+    },
+    execute: async (params: any) => {
+      // This is now handled via PushChain universal transactions
+      // The SwapPage will be updated to use pushChainClient directly
+      console.log("Swap execution now uses PushChain universal transactions");
+      return {};
+    },
+  },
+};
 
 export type RelayClient = typeof relayClient;
-
-

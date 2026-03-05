@@ -2,10 +2,11 @@
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import React from "react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import { NavBar } from "../shared";
+import { getQuests } from "@/lib/supabase/api";
 
 const mockQuests = [
   {
@@ -136,11 +137,33 @@ const BackgroundImage = () => {
 export const QuestCardComponent = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [activeTab, setActiveTab] = useState<"main" | "dapp" | "game">("main");
+  const [allQuests, setAllQuests] = useState(mockQuests);
   const questsPerPage = 8;
-  const totalPages = Math.ceil(mockQuests.length / questsPerPage);
+
+  useEffect(() => {
+    getQuests().then((data) => {
+      if (data && data.length > 0) {
+        const mapped = data.map((q: any) => ({
+          id: q.id,
+          image: q.image_url || `/quest/main-quest-${q.sort_order}.png`,
+          alt: q.title || `Quest ${q.sort_order}`,
+          quest_type: q.quest_type,
+        }));
+        setAllQuests(mapped);
+      }
+    }).catch(console.error);
+  }, []);
+
+  useEffect(() => { setCurrentPage(1); }, [activeTab]);
+
+  const filteredQuests = allQuests.filter((q: any) =>
+    !q.quest_type || q.quest_type === activeTab || activeTab === "main"
+  );
+
+  const totalPages = Math.ceil(filteredQuests.length / questsPerPage);
 
   const startIndex = (currentPage - 1) * questsPerPage;
-  const currentQuests = mockQuests.slice(
+  const currentQuests = filteredQuests.slice(
     startIndex,
     startIndex + questsPerPage,
   );

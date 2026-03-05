@@ -3,8 +3,9 @@ import { Button } from "@/components/ui/button";
 import { ArrowLeft, ArrowRight, SquareArrowOutUpRight } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { NavBar } from "../shared";
+import { getLeaderboard } from "@/lib/supabase/api";
 const leaderboardData = [
   {
     id: 1,
@@ -101,6 +102,23 @@ const BackgroundImage = () => {
 };
 
 export const QuestCardComponent = () => {
+  const [players, setPlayers] = useState(leaderboardData);
+
+  useEffect(() => {
+    getLeaderboard(50).then((data) => {
+      if (data && data.length >= 3 && data.some((u: any) => (u.total_xp || 0) > 0)) {
+        const mapped = data.map((u: any, i: number) => ({
+          id: i + 1,
+          name: u.username || `Player ${i + 1}`,
+          score: u.total_xp || 0,
+          trophy: i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : undefined,
+          address: u.wallet_address ? `${u.wallet_address.slice(0, 16)}.....${u.wallet_address.slice(-10)}` : "0xc0ffee25472926.....10F9d54979",
+        }));
+        setPlayers(mapped);
+      }
+    }).catch(console.error);
+  }, []);
+
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-2 sm:px-6">
       {/* Header */}
@@ -127,8 +145,8 @@ export const QuestCardComponent = () => {
           className="absolute inset-0 z-0 h-full w-full object-fill"
         />
         {/* Leaderboard List */}
-        <div className="bg-leaderboard relative m-6 mx-auto flex w-full flex-1 flex-col items-center justify-between gap-2 p-4 pt-8">
-          {leaderboardData.map((player, index) => {
+        <div className="bg-leaderboard relative m-6 mx-auto flex w-full flex-1 flex-col items-center gap-2 p-4 pt-8">
+          {players.map((player, index) => {
             // Determine background based on rank
             const bgImage =
               index === 0

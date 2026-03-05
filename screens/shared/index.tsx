@@ -57,6 +57,9 @@ export const NavBar = () => {
             <Link href="/quests" className={linkClass("/quests")}>
               QUESTS
             </Link>
+            <Link href="/pools" className={linkClass("/pools")}>
+              POOLS
+            </Link>
           </div>
 
           {/* Center avatar */}
@@ -108,6 +111,13 @@ export const NavBar = () => {
             onClick={() => setIsOpen(false)}
           >
             QUESTS
+          </Link>
+          <Link
+            href="/pools"
+            className={`${linkClass("/pools")} rounded-lg px-4 py-3 text-center text-2xl transition-all hover:bg-[#523525]`}
+            onClick={() => setIsOpen(false)}
+          >
+            POOLS
           </Link>
           <Link
             href="/profile"
