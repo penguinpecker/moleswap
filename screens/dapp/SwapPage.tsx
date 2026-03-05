@@ -38,6 +38,7 @@ export const SwapPage = ({
   onSwapStart,
   onSwapComplete,
 }: SwapPageProps) => {
+  const pushWallet = usePushWallet();
   const [isExecuting, setIsExecuting] = useState(false);
   const [isCompleted, setIsCompleted] = useState(false);
   const [executionError, setExecutionError] = useState<string | null>(null);
@@ -137,13 +138,12 @@ export const SwapPage = ({
       }
 
       const wallet = await getWalletClient();
-      if (!wallet) {
+      if (!wallet && !pushWallet.address) {
         throw new Error("No wallet available. Please connect your wallet.");
       }
 
-      // Get the current account and chain from the wallet
-      const accounts = await wallet.getAddresses();
-      const currentAddress = accounts?.[0];
+      // Get the current account - prefer PushChain universal account
+      const currentAddress = pushWallet.address || (wallet ? (await wallet.getAddresses())?.[0] : null);
 
       if (!currentAddress) {
         throw new Error(
