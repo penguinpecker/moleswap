@@ -152,34 +152,40 @@ export const SwapPage = ({
       }
 
       // Check current chain ID and switch if needed
-      try {
-        const currentChainId = await wallet.getChainId();
-        if (currentChainId !== expectedChainId) {
-          // Try to switch chain
-          try {
-            await wallet.switchChain({ id: expectedChainId });
-            // Wait a moment for chain switch to complete
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-          } catch (switchError: any) {
-            // If switch fails, try to add chain first (for testnets/new chains)
-            if (
-              switchError?.code === 4902 ||
-              switchError?.message?.includes("Unrecognized chain")
-            ) {
+      // Skip for PushChain universal wallet — it handles cross-chain natively
+      if (wallet && !pushWallet.isConnected) {
+        try {
+          const currentChainId = await wallet.getChainId();
+          if (currentChainId !== expectedChainId) {
+            // Try to switch chain
+            try {
+              await wallet.switchChain({ id: expectedChainId });
+              // Wait a moment for chain switch to complete
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+            } catch (switchError: any) {
+              // If switch fails, try to add chain first (for testnets/new chains)
+              if (
+                switchError?.code === 4902 ||
+                switchError?.message?.includes("Unrecognized chain")
+              ) {
+                throw new Error(
+                  `Please switch your wallet to chain ${expectedChainId} (${swapData.fromChain?.displayName || swapData.fromChain?.name || "Unknown"}) manually.`,
+                );
+              }
               throw new Error(
-                `Please switch your wallet to chain ${expectedChainId} (${swapData.fromChain?.displayName || swapData.fromChain?.name || "Unknown"}) manually.`,
+                `Failed to switch to chain ${expectedChainId}: ${switchError?.message || "Unknown error"}`,
               );
             }
+          }
+        } catch (chainError: any) {
+          if (!pushWallet.isConnected) {
             throw new Error(
-              `Failed to switch to chain ${expectedChainId}: ${switchError?.message || "Unknown error"}`,
+              `Chain mismatch. Please ensure your wallet is connected to ${swapData.fromChain?.displayName || swapData.fromChain?.name || `chain ${expectedChainId}`}. ${chainError?.message || ""}`,
             );
           }
+          // PushChain wallet connected — skip chain check
+          console.log("PushChain universal wallet — skipping chain check");
         }
-      } catch (chainError: any) {
-        // If we can't get/switch chain, show user-friendly error
-        throw new Error(
-          `Chain mismatch. Please ensure your wallet is connected to ${swapData.fromChain?.displayName || swapData.fromChain?.name || `chain ${expectedChainId}`}. ${chainError?.message || ""}`,
-        );
       }
 
       // Burn addresses to check against
