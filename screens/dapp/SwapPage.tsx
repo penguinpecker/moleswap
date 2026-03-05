@@ -47,6 +47,11 @@ export const SwapPage = ({
   const [approving, setApproving] = useState(false);
   const [approvalHash, setApprovalHash] = useState<string | null>(null);
   const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
+  const [swapSteps, setSwapSteps] = useState<Array<{ label: string; status: "pending" | "signing" | "confirmed" | "error" }>>([
+    { label: "WRAP PC → WPC", status: "pending" },
+    { label: "APPROVE TOKEN", status: "pending" },
+    { label: "SWAP TOKENS", status: "pending" },
+  ]);
 
   // Compute input amount in wei for exact-amount approval when needed
   const amountWei = useMemo(() => {
@@ -382,6 +387,13 @@ export const SwapPage = ({
       const { executeSwap: pushSwap } = await import("@/lib/pushchain/amm");
       
       setCurrentStep("Wrapping PC → WPC...");
+      // Reset steps
+      setSwapSteps([
+        { label: "WRAP PC → WPC", status: "pending" },
+        { label: "APPROVE TOKEN", status: "pending" },
+        { label: "SWAP TOKENS", status: "pending" },
+      ]);
+
       const swapResult = await pushSwap({
         pushChainClient: pushWallet.pushChainClient,
         tokenIn: swapData.fromToken,
@@ -390,6 +402,16 @@ export const SwapPage = ({
         amountOutMin: swapData.quote?.amountOut || "0",
         recipient: currentAddress,
         fee: swapData.quote?.fee,
+        onStep: (stepIdx, label, status) => {
+          setSwapSteps(prev => {
+            const next = [...prev];
+            if (stepIdx >= 0 && stepIdx < next.length) {
+              next[stepIdx] = { label, status };
+            }
+            return next;
+          });
+          if (status === "signing") setCurrentStep(label);
+        },
       });
 
       if (!swapResult.success || !swapResult.txHash) {
@@ -582,20 +604,70 @@ export const SwapPage = ({
             />
           </div>
 
-          {/* Execution Status - Show during approval/swap phases */}
+          {/* 3-Step Swap Progress */}
           {isExecuting && (
-            <div className="relative z-50 rounded-lg bg-black/40 p-4 text-center">
-              <div className="text-sm text-yellow-200">
-                {approving
-                  ? "Waiting for approval confirmation..."
-                  : "Executing swap... (Animation running)"}{" "}
-                <span className="text-[#BCBCBC]">
-                  • ETA:{" "}
-                  {(swapData.etaSeconds ?? null) !== null
-                    ? `${swapData.etaSeconds}s`
-                    : "-"}
-                </span>
-              </div>
+            <div className="relative z-50 flex flex-col gap-2 rounded-lg p-3">
+              {swapSteps.map((step, i) => {
+                const isDone = step.status === "confirmed";
+                const isActive = step.status === "signing";
+                const isPending = step.status === "pending";
+                return (
+                  <div
+                    key={i}
+                    className={`relative flex items-center gap-3 rounded-lg px-4 py-3 ${
+                      isActive ? "border-2 border-yellow-400" : "border-2 border-transparent"
+                    }`}
+                  >
+                    <Image
+                      src={isActive ? "/dapp/selected-network-bg.png" : "/quest/header-quest-bg.png"}
+                      alt="BG"
+                      width={200}
+                      height={200}
+                      className="absolute inset-0 z-[-1] h-full w-full"
+                    />
+                    {/* Step indicator */}
+                    <div
+                      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-sm font-bold ${
+                        isDone
+                          ? "bg-[#6DBB3E] text-white"
+                          : isActive
+                            ? "bg-yellow-400 text-black"
+                            : "bg-[#523525] text-[#8b6d4f]"
+                      }`}
+                    >
+                      {isDone ? "✓" : isActive ? (
+                        <div className="h-3 w-3 animate-spin rounded-full border-2 border-black border-t-transparent" />
+                      ) : (
+                        i + 1
+                      )}
+                    </div>
+                    {/* Step label */}
+                    <div className="flex-1">
+                      <span
+                        className={`font-family-ThaleahFat text-lg tracking-wider ${
+                          isDone
+                            ? "text-[#6DBB3E]"
+                            : isActive
+                              ? "text-peach-300"
+                              : "text-[#8b6d4f]"
+                        }`}
+                      >
+                        {step.label}
+                      </span>
+                      {isActive && (
+                        <span className="font-family-ThaleahFat ml-2 text-sm tracking-wider text-yellow-400">
+                          WAITING FOR SIGNATURE...
+                        </span>
+                      )}
+                      {isDone && (
+                        <span className="font-family-ThaleahFat ml-2 text-sm tracking-wider text-[#6DBB3E]">
+                          CONFIRMED
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
 
@@ -613,9 +685,7 @@ export const SwapPage = ({
           >
             <span>
               {isExecuting
-                ? approving
-                  ? "APPROVING..."
-                  : "SWAPPING..."
+                ? currentStep || "SWAPPING..."
                 : needsApproval
                   ? "APPROVE"
                   : "START SWAPPING"}

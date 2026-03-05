@@ -138,7 +138,9 @@ export async function executeSwap(params: {
   recipient: string;
   fee?: number;
   deadline?: number;
+  onStep?: (step: number, label: string, status: "pending" | "signing" | "confirmed" | "error") => void;
 }): Promise<{ txHash: string; success: boolean; error?: string }> {
+  const onStep = params.onStep || (() => {});
   try {
     const isNativeIn = params.tokenIn === ethers.ZeroAddress;
     const actualIn = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
@@ -165,6 +167,7 @@ export async function executeSwap(params: {
 
     // ═══ STEP 1: Wrap native PC → WPC (if native input) ═══
     if (isNativeIn) {
+      onStep(0, "WRAP PC → WPC", "signing");
       console.log("[MoleSwap] Step 1: Wrapping PC → WPC...");
       const wpcIface = new ethers.Interface(["function deposit() payable"]);
       const wrapData = wpcIface.encodeFunctionData("deposit");
@@ -191,9 +194,13 @@ export async function executeSwap(params: {
       } else {
         throw new Error("No wallet available for wrapping");
       }
+      onStep(0, "WRAP PC → WPC", "confirmed");
+    } else {
+      onStep(0, "WRAP PC → WPC", "confirmed"); // Skip — not native
     }
 
     // ═══ STEP 2: Approve token for Router ═══
+    onStep(1, "APPROVE TOKEN", "signing");
     console.log("[MoleSwap] Step 2: Approving token for Router...");
     const tokenToApprove = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
     
@@ -218,8 +225,10 @@ export async function executeSwap(params: {
       await tx.wait();
       console.log("[MoleSwap] Approve confirmed:", tx.hash);
     }
+    onStep(1, "APPROVE TOKEN", "confirmed");
 
     // ═══ STEP 3: Execute swap (NO native value — we already wrapped) ═══
+    onStep(2, "SWAP TOKENS", "signing");
     console.log("[MoleSwap] Step 3: Executing swap...");
     const iface = new ethers.Interface(SWAP_ROUTER_ABI);
     const swapCalldata = iface.encodeFunctionData("exactInputSingle", [{
@@ -260,9 +269,11 @@ export async function executeSwap(params: {
       throw new Error("Swap transaction returned empty hash");
     }
 
+    onStep(2, "SWAP TOKENS", "confirmed");
     return { txHash, success: true };
   } catch (err: any) {
     console.error("[MoleSwap] Swap error:", err?.message || err);
+    onStep(-1, err?.message || "Unknown error", "error");
     return { txHash: "", success: false, error: err?.message || "Unknown swap error" };
   }
 }

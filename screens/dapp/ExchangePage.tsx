@@ -684,40 +684,8 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
 
   const handleConnectWallet = async () => {
     try {
-      const eth = typeof window !== "undefined" ? window.ethereum : undefined;
-      if (eth?.request) {
-        const accounts: string[] = await eth.request({
-          method: "eth_requestAccounts",
-        });
-        if (accounts?.[0]) {
-          setWalletAddress(accounts[0]);
-          setRecipientAddress(accounts[0]); // Initialize recipient to wallet address
-          setShowReceive(true);
-          // Dispatch custom event to notify other components
-          if (typeof window !== "undefined") {
-            window.dispatchEvent(
-              new CustomEvent("walletConnected", {
-                detail: { address: accounts[0] },
-              }),
-            );
-          }
-          return;
-        }
-      }
-      // PushChain universal wallet connection
-      await pushWallet.connect();
-      if (pushWallet.address) {
-        setWalletAddress(pushWallet.address);
-        setRecipientAddress(pushWallet.address);
-        setShowReceive(true);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(
-            new CustomEvent("walletConnected", {
-              detail: { address: pushWallet.address },
-            }),
-          );
-        }
-      }
+      // PushChain universal wallet connection (primary)
+      pushWallet.connect();
     } catch (e) {
       // optional toast
     }
