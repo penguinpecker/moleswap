@@ -326,8 +326,10 @@ export const SwapPage = ({
         }
       }
 
-      // If approval required, perform it first and wait for confirmation
+      // If approval required, perform it first
+      // Skip for PushChain wallet — our executeSwap handles approval internally
       if (
+        !pushWallet.isConnected &&
         needsApproval &&
         approvalInfo &&
         (requireApproval === null || requireApproval === true)
@@ -372,55 +374,27 @@ export const SwapPage = ({
         }
       }
 
-      await relayClient.actions.execute({
-        quote: filteredQuote,
-        wallet,
-        onProgress: ({
-          steps,
-          fees,
-          breakdown,
-          currentStep: step,
-          currentStepItem,
-          txHashes: hashes,
-          details,
-        }) => {
-          // eslint-disable-next-line no-console
-          console.log("Swap progress:", {
-            steps,
-            fees,
-            breakdown,
-            currentStep: step,
-            currentStepItem,
-            txHashes: hashes,
-            details,
-          });
+      // Execute swap via PushChain AMM
+      onSwapStart?.();
+      hasStarted = true;
 
-          // Start animation after first transaction is sent (wallet approval happened)
-          // Animation will keep looping until swap completes
-          if (!hasStarted && hashes && hashes.length > 0) {
-            hasStarted = true;
-            onSwapStart?.(); // Trigger background animation (will loop until onSwapComplete)
-          }
-
-          // Silently track txHashes during execution (don't show status)
-          if (hashes && hashes.length > 0) {
-            // Extract txHash strings from objects or use strings directly
-            const hashStrings = hashes
-              .map((h: any) =>
-                typeof h === "string" ? h : h.txHash || h.hash || h,
-              )
-              .filter(Boolean);
-            // Filter out approval hash if present so only swap tx is recorded
-            const filtered = approvalHash
-              ? hashStrings.filter(
-                  (h: string) => h.toLowerCase() !== approvalHash.toLowerCase(),
-                )
-              : hashStrings;
-            finalTxHashes = filtered;
-            setTxHashes(filtered);
-          }
-        },
+      const { executeSwap: pushSwap } = await import("@/lib/pushchain/amm");
+      const swapResult = await pushSwap({
+        pushChainClient: pushWallet.pushChainClient,
+        tokenIn: swapData.fromToken,
+        tokenOut: swapData.toToken,
+        amountIn: swapData.quote?.amountIn || amountWei,
+        amountOutMin: swapData.quote?.amountOut || "0",
+        recipient: currentAddress,
+        fee: swapData.quote?.fee,
       });
+
+      if (!swapResult.success || !swapResult.txHash) {
+        throw new Error("Swap transaction failed or was rejected");
+      }
+
+      finalTxHashes = [swapResult.txHash];
+      setTxHashes([swapResult.txHash]);
 
       // Execute promise has resolved - swap is complete
       // Stop animation and navigate to transaction-info immediately
