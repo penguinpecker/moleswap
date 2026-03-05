@@ -114,6 +114,7 @@ export const POOL_ABI = [
 // ═══ HELPERS ═══
 export const PUSHCHAIN_RPC = "https://evm.donut.rpc.push.org/";
 export const PUSHCHAIN_CHAIN_ID = 2442;
+export const PUSHCHAIN_EXPLORER = "https://donut.push.network";
 
 export function getTokenByAddress(address: string): TokenInfo | undefined {
   return TOKENS.find(t => t.address.toLowerCase() === address.toLowerCase());

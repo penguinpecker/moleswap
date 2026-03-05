@@ -47,10 +47,12 @@ export const TransactionInfoPage = ({
         : "");
     if (txId) {
       // Determine chain explorer based on toChain
-      const chainId = swapData.toChain?.id || 1; // Default to Ethereum mainnet
-      let explorerUrl = `https://etherscan.io/tx/${txId}`;
+      const chainId = swapData.toChain?.id || 2442; // Default to Push Chain
+      let explorerUrl = `https://donut.push.network/tx/${txId}`;
 
-      if (chainId === 8453) {
+      if (chainId === 2442) {
+        explorerUrl = `https://donut.push.network/tx/${txId}`;
+      } else if (chainId === 8453) {
         explorerUrl = `https://basescan.org/tx/${txId}`;
       } else if (chainId === 42161) {
         explorerUrl = `https://arbiscan.io/tx/${txId}`;
@@ -60,6 +62,8 @@ export const TransactionInfoPage = ({
         explorerUrl = `https://polygonscan.com/tx/${txId}`;
       } else if (chainId === 56) {
         explorerUrl = `https://bscscan.com/tx/${txId}`;
+      } else if (chainId === 1) {
+        explorerUrl = `https://etherscan.io/tx/${txId}`;
       }
 
       window.open(explorerUrl, "_blank", "noopener,noreferrer");

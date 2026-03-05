@@ -45,7 +45,7 @@ export function getProvider(): ethers.JsonRpcProvider {
 export async function getSwapQuote(params: {
   tokenIn: string;
   tokenOut: string;
-  amountIn: string;
+  amountIn: string; // WEI format (raw BigInt string)
   fee?: number;
 }): Promise<SwapQuote | null> {
   try {
@@ -55,6 +55,10 @@ export async function getSwapQuote(params: {
     const tokenInInfo = getTokenByAddress(params.tokenIn);
     const tokenOutInfo = getTokenByAddress(params.tokenOut);
     if (!tokenInInfo || !tokenOutInfo) return null;
+
+    // amountIn is already in WEI from ExchangePage
+    const amountInWei = BigInt(params.amountIn || "0");
+    if (amountInWei === 0n) return null;
 
     // Resolve actual addresses (native PC → WPC for routing)
     const actualIn = params.tokenIn === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenIn;
@@ -66,21 +70,16 @@ export async function getSwapQuote(params: {
 
     // If no direct pool, try routing through WPC
     if (!pool && actualIn !== CONTRACTS.WPC && actualOut !== CONTRACTS.WPC) {
-      // Two-hop: tokenIn → WPC → tokenOut
-      // For now, use single-hop with WPC as intermediate
       const poolA = findPool(actualIn, CONTRACTS.WPC);
       const poolB = findPool(actualOut, CONTRACTS.WPC);
       if (poolA && poolB) {
-        // Get quote for first leg
-        const amountWei = ethers.parseUnits(params.amountIn, tokenInInfo.decimals);
         const [midAmount] = await quoter.quoteExactInputSingle.staticCall({
           tokenIn: actualIn,
           tokenOut: CONTRACTS.WPC,
-          amountIn: amountWei,
+          amountIn: amountInWei,
           fee: poolA.fee,
           sqrtPriceLimitX96: 0,
         });
-        // Get quote for second leg
         const [finalAmount,,, gasEst] = await quoter.quoteExactInputSingle.staticCall({
           tokenIn: CONTRACTS.WPC,
           tokenOut: actualOut,
@@ -89,15 +88,14 @@ export async function getSwapQuote(params: {
           sqrtPriceLimitX96: 0,
         });
 
-        const amountOut = ethers.formatUnits(finalAmount, tokenOutInfo.decimals);
         return {
           amountIn: params.amountIn,
-          amountOut,
+          amountOut: finalAmount.toString(), // Return WEI
           tokenIn: tokenInInfo,
           tokenOut: tokenOutInfo,
           fee: poolA.fee,
           pool: poolA,
-          priceImpact: 0.5, // TODO: calculate from sqrtPriceX96
+          priceImpact: 0.5,
           gasEstimate: gasEst?.toString() || "150000",
         };
       }
@@ -106,18 +104,17 @@ export async function getSwapQuote(params: {
 
     if (!pool) return null;
 
-    const amountWei = ethers.parseUnits(params.amountIn, tokenInInfo.decimals);
     const [amountOut,,, gasEstimate] = await quoter.quoteExactInputSingle.staticCall({
       tokenIn: actualIn,
       tokenOut: actualOut,
-      amountIn: amountWei,
+      amountIn: amountInWei,
       fee,
       sqrtPriceLimitX96: 0,
     });
 
     return {
       amountIn: params.amountIn,
-      amountOut: ethers.formatUnits(amountOut, tokenOutInfo.decimals),
+      amountOut: amountOut.toString(), // Return WEI
       tokenIn: tokenInInfo,
       tokenOut: tokenOutInfo,
       fee,
@@ -136,27 +133,25 @@ export async function executeSwap(params: {
   pushChainClient: any;
   tokenIn: string;
   tokenOut: string;
-  amountIn: string;
-  amountOutMin: string;
+  amountIn: string;    // WEI format
+  amountOutMin: string; // WEI format
   recipient: string;
   fee?: number;
   deadline?: number;
 }): Promise<{ txHash: string; success: boolean }> {
   try {
-    const tokenInInfo = getTokenByAddress(params.tokenIn);
-    if (!tokenInInfo) throw new Error("Unknown input token");
-
     const actualIn = params.tokenIn === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenIn;
     const actualOut = params.tokenOut === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenOut;
     const pool = findPool(actualIn, actualOut);
     const fee = params.fee || pool?.fee || 500;
 
-    const amountIn = ethers.parseUnits(params.amountIn, tokenInInfo.decimals);
-    const amountOutMin = ethers.parseUnits(params.amountOutMin, getTokenByAddress(params.tokenOut)?.decimals || 18);
-    const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1800; // 30 min
+    const amountIn = BigInt(params.amountIn);
+    // Apply 1% slippage to amountOutMin
+    const amountOutMin = BigInt(params.amountOutMin) * 99n / 100n;
+    const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1800;
 
     const iface = new ethers.Interface(SWAP_ROUTER_ABI);
-    const swapData = iface.encodeFunctionData("exactInputSingle", [{
+    const swapCalldata = iface.encodeFunctionData("exactInputSingle", [{
       tokenIn: actualIn,
       tokenOut: actualOut,
       fee,
@@ -166,31 +161,44 @@ export async function executeSwap(params: {
       sqrtPriceLimitX96: 0,
     }]);
 
-    // Use PushChain universal transaction
+    const isNativeIn = params.tokenIn === ethers.ZeroAddress;
+    const txValue = isNativeIn ? amountIn : BigInt(0);
+
+    // 1. If not native, approve token first
+    if (!isNativeIn) {
+      try {
+        const approveHash = await approveToken(params.tokenIn, params.amountIn);
+        if (approveHash) console.log("Approved:", approveHash);
+      } catch (e) {
+        console.warn("Approve may have failed, trying swap anyway:", e);
+      }
+    }
+
+    // 2. Execute via PushChain universal transaction
     if (params.pushChainClient?.universal?.sendTransaction) {
       const txHash = await params.pushChainClient.universal.sendTransaction({
         to: CONTRACTS.SWAP_ROUTER,
-        value: params.tokenIn === ethers.ZeroAddress ? amountIn : BigInt(0),
-        data: swapData,
+        value: txValue,
+        data: swapCalldata,
       });
       return { txHash: txHash || "", success: true };
     }
 
-    // Fallback: direct EVM call
+    // 3. Fallback: direct EVM call via browser wallet
     if (typeof window !== "undefined" && (window as any).ethereum) {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();
       const tx = await signer.sendTransaction({
         to: CONTRACTS.SWAP_ROUTER,
-        value: params.tokenIn === ethers.ZeroAddress ? amountIn : BigInt(0),
-        data: swapData,
+        value: txValue,
+        data: swapCalldata,
       });
       const receipt = await tx.wait();
       return { txHash: receipt?.hash || tx.hash, success: true };
     }
 
-    throw new Error("No wallet available");
-  } catch (err) {
+    throw new Error("No wallet available for swap execution");
+  } catch (err: any) {
     console.error("Swap error:", err);
     return { txHash: "", success: false };
   }
@@ -199,16 +207,14 @@ export async function executeSwap(params: {
 // ═══ TOKEN APPROVAL ═══
 export async function approveToken(
   tokenAddress: string,
-  amount: string,
-  decimals: number = 18
+  amountWei: string, // WEI format
 ): Promise<string | null> {
   try {
     if (typeof window === "undefined" || !(window as any).ethereum) return null;
     const provider = new ethers.BrowserProvider((window as any).ethereum);
     const signer = await provider.getSigner();
     const token = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
-    const amountWei = ethers.parseUnits(amount, decimals);
-    const tx = await token.approve(CONTRACTS.SWAP_ROUTER, amountWei);
+    const tx = await token.approve(CONTRACTS.SWAP_ROUTER, BigInt(amountWei));
     const receipt = await tx.wait();
     return receipt?.hash || tx.hash;
   } catch (err) {
