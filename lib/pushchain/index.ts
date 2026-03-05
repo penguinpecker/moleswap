@@ -10,7 +10,11 @@ export {
   getSwapQuote,
   executeSwap,
   addLiquidity,
-  getPools,
+  removeLiquidity,
+  getAllPools,
+  getPairReserves,
+  approveToken,
+  getProvider,
   PUSHCHAIN_RPC,
   PUSHCHAIN_CHAIN_ID,
   PUSHCHAIN_TOKENS,
@@ -19,3 +23,14 @@ export {
 } from "./amm";
 
 export type { PushChainToken, Pool, SwapQuote } from "./amm";
+
+export {
+  CONTRACTS,
+  TOKENS,
+  POOLS,
+  getTokenByAddress,
+  getTokenBySymbol,
+  findPool,
+} from "./contracts";
+
+export type { TokenInfo, PoolInfo } from "./contracts";

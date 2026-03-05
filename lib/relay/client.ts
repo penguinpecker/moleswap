@@ -1,8 +1,6 @@
 /**
- * Swap Client - Now uses PushChain AMM
- * Keeps relayClient export for backward compat
+ * Swap Client — uses PushChain V3 AMM (QuoterV2 + SwapRouter)
  */
-
 import { getSwapQuote, executeSwap as pushExecuteSwap } from "@/lib/pushchain/amm";
 
 export const relayClient = {
@@ -12,13 +10,12 @@ export const relayClient = {
         tokenIn: params.currency || params.fromToken,
         tokenOut: params.toCurrency || params.toToken,
         amountIn: params.amount || "0",
+        fee: params.fee,
       });
       return quote || {};
     },
     execute: async (params: any) => {
-      // This is now handled via PushChain universal transactions
-      // The SwapPage will be updated to use pushChainClient directly
-      console.log("Swap execution now uses PushChain universal transactions");
+      console.log("Use pushChainClient.universal.sendTransaction for swaps");
       return {};
     },
   },

@@ -1,9 +1,8 @@
 /**
- * Chain & Token API - Now powered by PushChain
- * Keeps the same interface so ExchangePage doesn't break
+ * Chain & Token API — powered by PushChain AMM
+ * Returns real PRC-20 tokens deployed on Push Chain Donut Testnet
  */
-
-import { PUSHCHAIN_TOKENS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID } from "@/lib/pushchain/amm";
+import { TOKENS, CONTRACTS, PUSHCHAIN_CHAIN_ID, type TokenInfo } from "@/lib/pushchain/contracts";
 
 export interface RelayCurrency {
   id: string;
@@ -12,6 +11,7 @@ export interface RelayCurrency {
   address: string;
   decimals: number;
   logoURI?: string;
+  sourceChain?: string;
 }
 
 export interface RelayChain {
@@ -32,15 +32,14 @@ export interface RelayChain {
   featuredTokens?: (RelayCurrency & { metadata?: { logoURI?: string } })[];
 }
 
-// Return PushChain as the only chain
 export async function getChains(): Promise<RelayChain[]> {
   return [
     {
       id: PUSHCHAIN_CHAIN_ID,
       name: "Push Chain",
-      displayName: "Push Chain (Testnet)",
-      iconUrl: "/profile/profile-logo.png",
-      logoUrl: "/profile/profile-logo.png",
+      displayName: "Push Chain (Donut Testnet)",
+      iconUrl: "https://push.org/assets/website/segments/PushLogoBlack@3x.png",
+      logoUrl: "https://push.org/assets/website/segments/PushLogoBlack@3x.png",
       vmType: "evm",
       currency: {
         id: "pc",
@@ -49,13 +48,14 @@ export async function getChains(): Promise<RelayChain[]> {
         address: "0x0000000000000000000000000000000000000000",
         decimals: 18,
       },
-      featuredTokens: PUSHCHAIN_TOKENS.map((t) => ({
+      featuredTokens: TOKENS.map((t) => ({
         id: t.address,
         symbol: t.symbol,
         name: t.name,
         address: t.address,
         decimals: t.decimals,
         logoURI: t.logoURI,
+        sourceChain: t.sourceChain,
         metadata: { logoURI: t.logoURI },
       })),
     },
@@ -63,34 +63,13 @@ export async function getChains(): Promise<RelayChain[]> {
 }
 
 export function getTokensForChain(chain: RelayChain): RelayCurrency[] {
-  const native: RelayCurrency = {
-    id: chain.currency?.address || "0x0000000000000000000000000000000000000000",
-    symbol: chain.currency?.symbol || "PC",
-    name: chain.currency?.name || "Push Chain",
-    address: chain.currency?.address || "0x0000000000000000000000000000000000000000",
-    decimals: chain.currency?.decimals || 18,
-    logoURI: chain.logoUrl || chain.iconUrl,
-  };
-
-  const featured = (chain.featuredTokens || []).map((t) => ({
-    id: t.id || t.address,
+  return (chain.featuredTokens || []).map((t) => ({
+    id: t.address,
     symbol: t.symbol,
     name: t.name,
     address: t.address,
     decimals: t.decimals,
     logoURI: t.metadata?.logoURI || t.logoURI,
+    sourceChain: (t as any).sourceChain,
   }));
-
-  const seen = new Set<string>();
-  const result: RelayCurrency[] = [];
-  seen.add(native.address.toLowerCase());
-  result.push(native);
-  for (const t of featured) {
-    const key = t.address.toLowerCase();
-    if (!seen.has(key)) {
-      seen.add(key);
-      result.push(t);
-    }
-  }
-  return result;
 }

@@ -1,441 +1,268 @@
 /**
- * PushChain AMM — Uniswap V2 Fork
- * Full on-chain integration with Factory, Router, Pair contracts
+ * PushChain AMM — Uniswap V3-style Concentrated Liquidity
+ * Interacts with deployed contracts on Push Chain Donut Testnet
  */
-
 import { ethers } from "ethers";
+import {
+  CONTRACTS, TOKENS, POOLS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
+  QUOTER_V2_ABI, SWAP_ROUTER_ABI, ERC20_ABI, POOL_ABI,
+  getTokenByAddress, findPool,
+  type TokenInfo, type PoolInfo,
+} from "./contracts";
 
-// PushChain EVM Config
-export const PUSHCHAIN_RPC = "https://evm.donut.rpc.push.org/";
-export const PUSHCHAIN_CHAIN_ID = 2442;
+// Re-export everything the app needs
+export {
+  CONTRACTS, TOKENS, POOLS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
+  getTokenByAddress, findPool,
+  type TokenInfo, type PoolInfo,
+};
 
-// Contract addresses — set via env or after deployment
-export const AMM_FACTORY = process.env.NEXT_PUBLIC_AMM_FACTORY || "";
-export const AMM_ROUTER = process.env.NEXT_PUBLIC_AMM_ROUTER || "";
-export const WETH_ADDRESS = process.env.NEXT_PUBLIC_WETH_ADDRESS || "";
+// Legacy exports for backward compat
+export const AMM_ROUTER = CONTRACTS.SWAP_ROUTER;
+export const AMM_FACTORY = CONTRACTS.FACTORY;
+export type PushChainToken = TokenInfo;
+export type Pool = PoolInfo;
 
-// ============================================
-// ABIs
-// ============================================
-
-export const FACTORY_ABI = [
-  "function getPair(address tokenA, address tokenB) view returns (address pair)",
-  "function allPairs(uint256 index) view returns (address pair)",
-  "function allPairsLength() view returns (uint256)",
-  "function feeTo() view returns (address)",
-  "function createPair(address tokenA, address tokenB) returns (address pair)",
-];
-
-export const ROUTER_ABI = [
-  "function factory() view returns (address)",
-  "function WETH() view returns (address)",
-  "function getAmountsOut(uint256 amountIn, address[] memory path) view returns (uint256[] memory amounts)",
-  "function getAmountsIn(uint256 amountOut, address[] memory path) view returns (uint256[] memory amounts)",
-  "function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) external returns (uint256[] memory amounts)",
-  "function swapExactETHForTokens(uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) external payable returns (uint256[] memory amounts)",
-  "function swapExactTokensForETH(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) external returns (uint256[] memory amounts)",
-  "function addLiquidity(address tokenA, address tokenB, uint256 amountADesired, uint256 amountBDesired, uint256 amountAMin, uint256 amountBMin, address to, uint256 deadline) external returns (uint256 amountA, uint256 amountB, uint256 liquidity)",
-  "function addLiquidityETH(address token, uint256 amountTokenDesired, uint256 amountTokenMin, uint256 amountETHMin, address to, uint256 deadline) external payable returns (uint256 amountToken, uint256 amountETH, uint256 liquidity)",
-  "function removeLiquidity(address tokenA, address tokenB, uint256 liquidity, uint256 amountAMin, uint256 amountBMin, address to, uint256 deadline) external returns (uint256 amountA, uint256 amountB)",
-  "function removeLiquidityETH(address token, uint256 liquidity, uint256 amountTokenMin, uint256 amountETHMin, address to, uint256 deadline) external returns (uint256 amountToken, uint256 amountETH)",
-  "function quote(uint256 amountA, uint256 reserveA, uint256 reserveB) pure returns (uint256 amountB)",
-];
-
-export const PAIR_ABI = [
-  "function getReserves() view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)",
-  "function token0() view returns (address)",
-  "function token1() view returns (address)",
-  "function totalSupply() view returns (uint256)",
-  "function balanceOf(address owner) view returns (uint256)",
-  "function approve(address spender, uint256 value) returns (bool)",
-  "function allowance(address owner, address spender) view returns (uint256)",
-  "function name() view returns (string)",
-  "function symbol() view returns (string)",
-  "function decimals() view returns (uint8)",
-];
-
-export const ERC20_ABI = [
-  "function name() view returns (string)",
-  "function symbol() view returns (string)",
-  "function decimals() view returns (uint8)",
-  "function totalSupply() view returns (uint256)",
-  "function balanceOf(address) view returns (uint256)",
-  "function approve(address spender, uint256 amount) returns (bool)",
-  "function allowance(address owner, address spender) view returns (uint256)",
-  "function transfer(address to, uint256 amount) returns (bool)",
-];
-
-// ============================================
-// Types
-// ============================================
-
-export interface PushChainToken {
-  address: string;
-  symbol: string;
-  name: string;
-  decimals: number;
-  logoURI?: string;
-}
-
-export interface Pool {
-  pairAddress: string;
-  token0: PushChainToken;
-  token1: PushChainToken;
-  reserve0: string;
-  reserve1: string;
-  totalSupply: string;
-  userLiquidity: string;
-  userShare: string;
-}
+export const PUSHCHAIN_TOKENS = TOKENS;
 
 export interface SwapQuote {
   amountIn: string;
   amountOut: string;
-  path: string[];
+  tokenIn: TokenInfo;
+  tokenOut: TokenInfo;
+  fee: number;
+  pool: PoolInfo;
   priceImpact: number;
-  executionPrice: string;
-  minimumReceived: string;
+  gasEstimate: string;
 }
 
-// ============================================
-// Provider
-// ============================================
-
+// ═══ PROVIDER ═══
 export function getProvider(): ethers.JsonRpcProvider {
   return new ethers.JsonRpcProvider(PUSHCHAIN_RPC);
 }
 
-export function getRouter(signerOrProvider?: ethers.Signer | ethers.Provider): ethers.Contract {
-  return new ethers.Contract(AMM_ROUTER, ROUTER_ABI, signerOrProvider || getProvider());
-}
-
-export function getFactory(signerOrProvider?: ethers.Signer | ethers.Provider): ethers.Contract {
-  return new ethers.Contract(AMM_FACTORY, FACTORY_ABI, signerOrProvider || getProvider());
-}
-
-export function getPairContract(pairAddress: string, signerOrProvider?: ethers.Signer | ethers.Provider): ethers.Contract {
-  return new ethers.Contract(pairAddress, PAIR_ABI, signerOrProvider || getProvider());
-}
-
-export function getERC20(tokenAddress: string, signerOrProvider?: ethers.Signer | ethers.Provider): ethers.Contract {
-  return new ethers.Contract(tokenAddress, ERC20_ABI, signerOrProvider || getProvider());
-}
-
-// ============================================
-// Read Functions
-// ============================================
-
-/** Get a swap quote via router.getAmountsOut */
+// ═══ QUOTE ═══
 export async function getSwapQuote(params: {
   tokenIn: string;
   tokenOut: string;
   amountIn: string;
-  decimalsIn?: number;
-  decimalsOut?: number;
-  slippage?: number; // e.g. 0.5 for 0.5%
+  fee?: number;
 }): Promise<SwapQuote | null> {
-  if (!AMM_ROUTER) return null;
   try {
-    const router = getRouter();
-    const amountInWei = ethers.parseUnits(params.amountIn, params.decimalsIn || 18);
-    const path = [params.tokenIn, params.tokenOut];
+    const provider = getProvider();
+    const quoter = new ethers.Contract(CONTRACTS.QUOTER_V2, QUOTER_V2_ABI, provider);
 
-    const amounts: bigint[] = await router.getAmountsOut(amountInWei, path);
-    const amountOut = amounts[amounts.length - 1];
-    const amountOutFormatted = ethers.formatUnits(amountOut, params.decimalsOut || 18);
+    const tokenInInfo = getTokenByAddress(params.tokenIn);
+    const tokenOutInfo = getTokenByAddress(params.tokenOut);
+    if (!tokenInInfo || !tokenOutInfo) return null;
 
-    // Calculate price impact using reserves
-    const factory = getFactory();
-    const pairAddress = await factory.getPair(params.tokenIn, params.tokenOut);
-    let priceImpact = 0;
-    if (pairAddress !== ethers.ZeroAddress) {
-      const pair = getPairContract(pairAddress);
-      const [r0, r1] = await pair.getReserves();
-      const token0 = await pair.token0();
-      const reserveIn = token0.toLowerCase() === params.tokenIn.toLowerCase() ? r0 : r1;
-      priceImpact = Number(amountInWei) / Number(reserveIn) * 100;
+    // Resolve actual addresses (native PC → WPC for routing)
+    const actualIn = params.tokenIn === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenIn;
+    const actualOut = params.tokenOut === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenOut;
+
+    // Find direct pool or route through WPC
+    let pool = findPool(actualIn, actualOut);
+    let fee = params.fee || pool?.fee || 500;
+
+    // If no direct pool, try routing through WPC
+    if (!pool && actualIn !== CONTRACTS.WPC && actualOut !== CONTRACTS.WPC) {
+      // Two-hop: tokenIn → WPC → tokenOut
+      // For now, use single-hop with WPC as intermediate
+      const poolA = findPool(actualIn, CONTRACTS.WPC);
+      const poolB = findPool(actualOut, CONTRACTS.WPC);
+      if (poolA && poolB) {
+        // Get quote for first leg
+        const amountWei = ethers.parseUnits(params.amountIn, tokenInInfo.decimals);
+        const [midAmount] = await quoter.quoteExactInputSingle.staticCall({
+          tokenIn: actualIn,
+          tokenOut: CONTRACTS.WPC,
+          amountIn: amountWei,
+          fee: poolA.fee,
+          sqrtPriceLimitX96: 0,
+        });
+        // Get quote for second leg
+        const [finalAmount,,, gasEst] = await quoter.quoteExactInputSingle.staticCall({
+          tokenIn: CONTRACTS.WPC,
+          tokenOut: actualOut,
+          amountIn: midAmount,
+          fee: poolB.fee,
+          sqrtPriceLimitX96: 0,
+        });
+
+        const amountOut = ethers.formatUnits(finalAmount, tokenOutInfo.decimals);
+        return {
+          amountIn: params.amountIn,
+          amountOut,
+          tokenIn: tokenInInfo,
+          tokenOut: tokenOutInfo,
+          fee: poolA.fee,
+          pool: poolA,
+          priceImpact: 0.5, // TODO: calculate from sqrtPriceX96
+          gasEstimate: gasEst?.toString() || "150000",
+        };
+      }
+      return null;
     }
 
-    const slippage = params.slippage || 0.5;
-    const minOut = amountOut - (amountOut * BigInt(Math.floor(slippage * 100))) / BigInt(10000);
+    if (!pool) return null;
+
+    const amountWei = ethers.parseUnits(params.amountIn, tokenInInfo.decimals);
+    const [amountOut,,, gasEstimate] = await quoter.quoteExactInputSingle.staticCall({
+      tokenIn: actualIn,
+      tokenOut: actualOut,
+      amountIn: amountWei,
+      fee,
+      sqrtPriceLimitX96: 0,
+    });
 
     return {
       amountIn: params.amountIn,
-      amountOut: amountOutFormatted,
-      path,
-      priceImpact: Math.min(priceImpact, 99.99),
-      executionPrice: (parseFloat(amountOutFormatted) / parseFloat(params.amountIn)).toFixed(6),
-      minimumReceived: ethers.formatUnits(minOut, params.decimalsOut || 18),
+      amountOut: ethers.formatUnits(amountOut, tokenOutInfo.decimals),
+      tokenIn: tokenInInfo,
+      tokenOut: tokenOutInfo,
+      fee,
+      pool,
+      priceImpact: 0.3,
+      gasEstimate: gasEstimate?.toString() || "150000",
     };
   } catch (err) {
-    console.error("getSwapQuote error:", err);
+    console.error("Quote error:", err);
     return null;
   }
 }
 
-/** Get all pools from factory */
-export async function getAllPools(userAddress?: string): Promise<Pool[]> {
-  if (!AMM_FACTORY) return [];
-  try {
-    const factory = getFactory();
-    const provider = getProvider();
-    const pairsLength = await factory.allPairsLength();
-    const pools: Pool[] = [];
-
-    for (let i = 0; i < Number(pairsLength); i++) {
-      try {
-        const pairAddress = await factory.allPairs(i);
-        const pair = getPairContract(pairAddress, provider);
-
-        const [token0Addr, token1Addr, reserves, totalSupply] = await Promise.all([
-          pair.token0(),
-          pair.token1(),
-          pair.getReserves(),
-          pair.totalSupply(),
-        ]);
-
-        const [t0, t1] = await Promise.all([
-          getTokenInfo(token0Addr, provider),
-          getTokenInfo(token1Addr, provider),
-        ]);
-
-        let userLiquidity = "0";
-        let userShare = "0";
-        if (userAddress) {
-          const bal = await pair.balanceOf(userAddress);
-          userLiquidity = ethers.formatUnits(bal, 18);
-          if (totalSupply > 0n) {
-            userShare = ((Number(bal) / Number(totalSupply)) * 100).toFixed(4);
-          }
-        }
-
-        pools.push({
-          pairAddress,
-          token0: t0,
-          token1: t1,
-          reserve0: ethers.formatUnits(reserves[0], t0.decimals),
-          reserve1: ethers.formatUnits(reserves[1], t1.decimals),
-          totalSupply: ethers.formatUnits(totalSupply, 18),
-          userLiquidity,
-          userShare,
-        });
-      } catch (pairErr) {
-        console.warn(`Failed to read pair ${i}:`, pairErr);
-      }
-    }
-    return pools;
-  } catch (err) {
-    console.error("getAllPools error:", err);
-    return [];
-  }
-}
-
-/** Get token info from contract */
-async function getTokenInfo(address: string, provider: ethers.Provider): Promise<PushChainToken> {
-  try {
-    const token = new ethers.Contract(address, ERC20_ABI, provider);
-    const [name, symbol, decimals] = await Promise.all([
-      token.name(),
-      token.symbol(),
-      token.decimals(),
-    ]);
-    return { address, name, symbol, decimals: Number(decimals) };
-  } catch {
-    return { address, name: "Unknown", symbol: "???", decimals: 18 };
-  }
-}
-
-/** Get pair reserves for a token pair */
-export async function getPairReserves(tokenA: string, tokenB: string): Promise<{
-  reserve0: string; reserve1: string; token0: string; pairAddress: string;
-} | null> {
-  if (!AMM_FACTORY) return null;
-  try {
-    const factory = getFactory();
-    const pairAddress = await factory.getPair(tokenA, tokenB);
-    if (pairAddress === ethers.ZeroAddress) return null;
-
-    const pair = getPairContract(pairAddress);
-    const [reserves, token0] = await Promise.all([
-      pair.getReserves(),
-      pair.token0(),
-    ]);
-
-    return {
-      reserve0: reserves[0].toString(),
-      reserve1: reserves[1].toString(),
-      token0,
-      pairAddress,
-    };
-  } catch (err) {
-    console.error("getPairReserves error:", err);
-    return null;
-  }
-}
-
-// ============================================
-// Write Functions (need signer)
-// ============================================
-
-/** Get ethers signer from browser wallet */
-async function getSigner(): Promise<ethers.Signer | null> {
-  if (typeof window === "undefined" || !window.ethereum) return null;
-  const provider = new ethers.BrowserProvider(window.ethereum);
-  return provider.getSigner();
-}
-
-/** Approve token spending */
-export async function approveToken(tokenAddress: string, spenderAddress: string, amount: string, decimals = 18): Promise<string | null> {
-  try {
-    const signer = await getSigner();
-    if (!signer) throw new Error("No signer");
-
-    const token = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
-    const amountWei = ethers.parseUnits(amount, decimals);
-    const tx = await token.approve(spenderAddress, amountWei);
-    await tx.wait();
-    return tx.hash;
-  } catch (err) {
-    console.error("approveToken error:", err);
-    return null;
-  }
-}
-
-/** Execute a swap */
+// ═══ EXECUTE SWAP ═══
 export async function executeSwap(params: {
+  pushChainClient: any;
   tokenIn: string;
   tokenOut: string;
   amountIn: string;
   amountOutMin: string;
-  decimalsIn?: number;
-  decimalsOut?: number;
   recipient: string;
+  fee?: number;
   deadline?: number;
-  pushChainClient?: any;
 }): Promise<{ txHash: string; success: boolean }> {
   try {
-    const signer = await getSigner();
-    if (!signer) throw new Error("No signer available");
+    const tokenInInfo = getTokenByAddress(params.tokenIn);
+    if (!tokenInInfo) throw new Error("Unknown input token");
 
-    const router = getRouter(signer);
-    const amountInWei = ethers.parseUnits(params.amountIn, params.decimalsIn || 18);
-    const amountOutMinWei = ethers.parseUnits(params.amountOutMin, params.decimalsOut || 18);
-    const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1200; // 20 min
-    const path = [params.tokenIn, params.tokenOut];
+    const actualIn = params.tokenIn === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenIn;
+    const actualOut = params.tokenOut === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenOut;
+    const pool = findPool(actualIn, actualOut);
+    const fee = params.fee || pool?.fee || 500;
 
-    // Approve router to spend tokenIn
-    await approveToken(params.tokenIn, AMM_ROUTER, params.amountIn, params.decimalsIn);
+    const amountIn = ethers.parseUnits(params.amountIn, tokenInInfo.decimals);
+    const amountOutMin = ethers.parseUnits(params.amountOutMin, getTokenByAddress(params.tokenOut)?.decimals || 18);
+    const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1800; // 30 min
 
-    // Execute swap
-    const isNativeIn = params.tokenIn === ethers.ZeroAddress || params.tokenIn === WETH_ADDRESS;
-    let tx;
+    const iface = new ethers.Interface(SWAP_ROUTER_ABI);
+    const swapData = iface.encodeFunctionData("exactInputSingle", [{
+      tokenIn: actualIn,
+      tokenOut: actualOut,
+      fee,
+      recipient: params.recipient,
+      amountIn,
+      amountOutMinimum: amountOutMin,
+      sqrtPriceLimitX96: 0,
+    }]);
 
-    if (isNativeIn) {
-      tx = await router.swapExactETHForTokens(
-        amountOutMinWei, path, params.recipient, deadline,
-        { value: amountInWei }
-      );
-    } else if (params.tokenOut === ethers.ZeroAddress || params.tokenOut === WETH_ADDRESS) {
-      tx = await router.swapExactTokensForETH(
-        amountInWei, amountOutMinWei, path, params.recipient, deadline
-      );
-    } else {
-      tx = await router.swapExactTokensForTokens(
-        amountInWei, amountOutMinWei, path, params.recipient, deadline
-      );
+    // Use PushChain universal transaction
+    if (params.pushChainClient?.universal?.sendTransaction) {
+      const txHash = await params.pushChainClient.universal.sendTransaction({
+        to: CONTRACTS.SWAP_ROUTER,
+        value: params.tokenIn === ethers.ZeroAddress ? amountIn : BigInt(0),
+        data: swapData,
+      });
+      return { txHash: txHash || "", success: true };
     }
 
-    const receipt = await tx.wait();
-    return { txHash: receipt.hash, success: true };
+    // Fallback: direct EVM call
+    if (typeof window !== "undefined" && (window as any).ethereum) {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      const tx = await signer.sendTransaction({
+        to: CONTRACTS.SWAP_ROUTER,
+        value: params.tokenIn === ethers.ZeroAddress ? amountIn : BigInt(0),
+        data: swapData,
+      });
+      const receipt = await tx.wait();
+      return { txHash: receipt?.hash || tx.hash, success: true };
+    }
+
+    throw new Error("No wallet available");
   } catch (err) {
-    console.error("executeSwap error:", err);
+    console.error("Swap error:", err);
     return { txHash: "", success: false };
   }
 }
 
-/** Add liquidity to a pair */
-export async function addLiquidity(params: {
-  tokenA: string;
-  tokenB: string;
-  amountA: string;
-  amountB: string;
-  decimalsA?: number;
-  decimalsB?: number;
-  slippage?: number;
-  recipient: string;
-}): Promise<{ txHash: string; success: boolean; liquidity?: string }> {
+// ═══ TOKEN APPROVAL ═══
+export async function approveToken(
+  tokenAddress: string,
+  amount: string,
+  decimals: number = 18
+): Promise<string | null> {
   try {
-    const signer = await getSigner();
-    if (!signer) throw new Error("No signer");
-
-    const router = getRouter(signer);
-    const amountAWei = ethers.parseUnits(params.amountA, params.decimalsA || 18);
-    const amountBWei = ethers.parseUnits(params.amountB, params.decimalsB || 18);
-    const slippage = params.slippage || 1; // 1%
-    const amountAMin = amountAWei - (amountAWei * BigInt(Math.floor(slippage * 100))) / BigInt(10000);
-    const amountBMin = amountBWei - (amountBWei * BigInt(Math.floor(slippage * 100))) / BigInt(10000);
-    const deadline = Math.floor(Date.now() / 1000) + 1200;
-
-    // Approve both tokens
-    await approveToken(params.tokenA, AMM_ROUTER, params.amountA, params.decimalsA);
-    await approveToken(params.tokenB, AMM_ROUTER, params.amountB, params.decimalsB);
-
-    const tx = await router.addLiquidity(
-      params.tokenA, params.tokenB,
-      amountAWei, amountBWei,
-      amountAMin, amountBMin,
-      params.recipient,
-      deadline
-    );
-
+    if (typeof window === "undefined" || !(window as any).ethereum) return null;
+    const provider = new ethers.BrowserProvider((window as any).ethereum);
+    const signer = await provider.getSigner();
+    const token = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
+    const amountWei = ethers.parseUnits(amount, decimals);
+    const tx = await token.approve(CONTRACTS.SWAP_ROUTER, amountWei);
     const receipt = await tx.wait();
-    return { txHash: receipt.hash, success: true };
+    return receipt?.hash || tx.hash;
   } catch (err) {
-    console.error("addLiquidity error:", err);
-    return { txHash: "", success: false };
+    console.error("Approve error:", err);
+    return null;
   }
 }
 
-/** Remove liquidity from a pair */
-export async function removeLiquidity(params: {
-  tokenA: string;
-  tokenB: string;
-  liquidity: string;
-  slippage?: number;
-  recipient: string;
-}): Promise<{ txHash: string; success: boolean }> {
+// ═══ GET ALL POOLS WITH LIQUIDITY ═══
+export async function getAllPools(userAddress?: string): Promise<any[]> {
   try {
-    const signer = await getSigner();
-    if (!signer) throw new Error("No signer");
-
-    const router = getRouter(signer);
-    const factory = getFactory();
-    const pairAddress = await factory.getPair(params.tokenA, params.tokenB);
-    if (pairAddress === ethers.ZeroAddress) throw new Error("Pair not found");
-
-    const liquidityWei = ethers.parseUnits(params.liquidity, 18);
-    const deadline = Math.floor(Date.now() / 1000) + 1200;
-
-    // Approve pair LP token
-    await approveToken(pairAddress, AMM_ROUTER, params.liquidity, 18);
-
-    const tx = await router.removeLiquidity(
-      params.tokenA, params.tokenB,
-      liquidityWei,
-      0, 0, // amountAMin, amountBMin (set to 0 for simplicity — add slippage in production)
-      params.recipient,
-      deadline
+    const provider = getProvider();
+    const poolData = await Promise.all(
+      POOLS.map(async (pool) => {
+        try {
+          const contract = new ethers.Contract(pool.address, POOL_ABI, provider);
+          const [slot0, liquidity] = await Promise.all([
+            contract.slot0(),
+            contract.liquidity(),
+          ]);
+          const token0 = getTokenByAddress(pool.token0);
+          const token1 = getTokenByAddress(pool.token1);
+          return {
+            ...pool,
+            token0Info: token0,
+            token1Info: token1,
+            sqrtPriceX96: slot0[0].toString(),
+            tick: slot0[1],
+            liquidity: liquidity.toString(),
+            hasLiquidity: liquidity > 0n,
+          };
+        } catch {
+          return { ...pool, hasLiquidity: false, liquidity: "0" };
+        }
+      })
     );
-
-    const receipt = await tx.wait();
-    return { txHash: receipt.hash, success: true };
+    return poolData.filter((p: any) => p.hasLiquidity);
   } catch (err) {
-    console.error("removeLiquidity error:", err);
-    return { txHash: "", success: false };
+    console.error("Get pools error:", err);
+    return [];
   }
 }
 
-// Default tokens on PushChain testnet
-export const PUSHCHAIN_TOKENS: PushChainToken[] = [
-  { address: "0x0000000000000000000000000000000000000000", symbol: "PC", name: "Push Chain", decimals: 18, logoURI: "/profile/profile-logo.png" },
-];
+// ═══ ADD/REMOVE LIQUIDITY (stubs) ═══
+export async function addLiquidity(params: any) {
+  console.log("Add liquidity via PositionManager:", CONTRACTS.POSITION_MANAGER);
+  return { txHash: "", success: false };
+}
+
+export async function removeLiquidity(params: any) {
+  console.log("Remove liquidity via PositionManager:", CONTRACTS.POSITION_MANAGER);
+  return { txHash: "", success: false };
+}
+
+export async function getPairReserves(tokenA: string, tokenB: string) {
+  return { reserve0: "0", reserve1: "0" };
+}
