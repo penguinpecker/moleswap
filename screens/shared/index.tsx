@@ -24,28 +24,25 @@ export const NavBar = () => {
     <div className="relative flex w-full items-center justify-center">
       {/* Brown pixel bar */}
       <div className="bg-ground font-family-ThaleahFat relative flex w-full items-center justify-center rounded-lg border-3 border-[#523525] px-4 py-2 text-base font-medium tracking-wider text-white shadow-[0px_-6px_0px_0px_#523525_inset,0px_7.5px_0px_0px_rgba(255,255,255,0.6)_inset] sm:py-4 sm:text-lg md:px-12 lg:max-w-5xl lg:justify-between lg:text-2xl">
-        {/* Center avatar */}
-        <span className="relative flex w-full transition-all lg:hidden">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-            <div className="border-ground h-12 w-12 overflow-hidden rounded-full border-3 bg-white shadow-[4px_4px_0_#000] sm:h-16 sm:w-16 sm:border-4">
-              <Image
-                src="/profile/profile-logo.png"
-                alt="Avatar"
-                width={64}
-                height={64}
-                className="h-full w-full object-cover"
-              />
-            </div>
+        {/* Mobile: logo left, hamburger right */}
+        <div className="flex w-full items-center justify-between lg:hidden">
+          <div className="border-ground h-12 w-12 shrink-0 overflow-hidden rounded-full border-3 bg-white shadow-[3px_3px_0_#000] sm:h-16 sm:w-16 sm:border-4">
+            <Image
+              src="/profile/profile-logo.png"
+              alt="Avatar"
+              width={64}
+              height={64}
+              className="h-full w-full object-cover"
+            />
           </div>
-        </span>
-        {/* Mobile Menu Button */}
-        <button
-          onClick={toggleMenu}
-          className="z-50 flex cursor-pointer items-center justify-center text-white transition-transform hover:scale-110 lg:hidden"
-          aria-label="Toggle menu"
-        >
-          {isOpen ? <X size={28} /> : <Menu size={28} />}
-        </button>
+          <button
+            onClick={toggleMenu}
+            className="shrink-0 cursor-pointer text-white transition-transform hover:scale-110"
+            aria-label="Toggle menu"
+          >
+            {isOpen ? <X size={24} /> : <Menu size={24} />}
+          </button>
+        </div>
 
         {/* Desktop Menu - Hidden on mobile */}
         <div className="hidden w-full items-center justify-between lg:flex">

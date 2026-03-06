@@ -7,7 +7,7 @@ import { NavBar } from "../shared";
 import { Copy, X, MessageCircle, Share2 } from "lucide-react";
 import { FaXTwitter } from "react-icons/fa6";
 import { usePushWallet } from "@/lib/pushchain/provider";
-import { getOrCreateUser } from "@/lib/supabase/api";
+import { getOrCreateUser, getUserRank } from "@/lib/supabase/api";
 const ProfilePage = () => {
   return (
     <div className="relative flex min-h-screen w-full flex-col items-center gap-2 sm:gap-4">
@@ -104,19 +104,30 @@ const BackgroundImage = () => {
 const ProfileCard = () => {
   const { address, isConnected } = usePushWallet();
   const [profile, setProfile] = useState<any>(null);
+  const [rank, setRank] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (isConnected && address) {
-      getOrCreateUser(address).then((u) => u && setProfile(u)).catch(console.error);
+      setLoading(true);
+      Promise.all([
+        getOrCreateUser(address),
+        getUserRank(address),
+      ]).then(([user, rankData]) => {
+        if (user) setProfile(user);
+        if (rankData) setRank(rankData);
+      }).catch(console.error).finally(() => setLoading(false));
     }
   }, [isConnected, address]);
 
-  const displayName = profile?.username || (address ? `${address.slice(0, 16).toUpperCase()}` : "HIKARU NAKAMOTO");
-  const displayXP = profile?.total_xp ?? 200;
-  const displayAddress = address?.toUpperCase() || "0XCOF37237279H29210F9054979";
+  const displayName = profile?.username || (address ? address.slice(0, 16).toUpperCase() : "—");
+  const displayXP = profile?.total_xp ?? 0;
+  const maxXP = 1000; // XP bar max for visual fill
+  const xpPct = Math.min((displayXP / maxXP) * 100, 100);
+  const displayAddress = address?.toUpperCase() || "NOT CONNECTED";
   const displayBalance = profile?.mole_balance ?? 0;
-  const displayRank = profile?.current_rank ? `#${profile.current_rank}` : "#2339";
-  const displayBestRank = profile?.best_rank ? `#${profile.best_rank}` : "#2339";
+  const displayRank = rank?.current_rank ? `#${rank.current_rank}` : (profile?.current_rank ? `#${profile.current_rank}` : "—");
+  const displayBestRank = rank?.best_rank ? `#${rank.best_rank}` : (profile?.best_rank ? `#${profile.best_rank}` : "—");
 
   return (
     <div className="relative flex w-full flex-col items-center p-2 pt-12 sm:w-[500px] sm:p-12 sm:pt-28">
@@ -158,14 +169,14 @@ const ProfileCard = () => {
             {/* XP Bar */}
             <div className="relative flex h-4 w-full items-center overflow-hidden rounded-r-md border border-[#D9A982] bg-[#FFD595] sm:h-6">
               {/* XP Bar Fill */}
-              <div className="relative h-full w-full bg-[#C99C33]">
+              <div className="relative h-full bg-[#C99C33] transition-all duration-500" style={{ width: `${Math.max(xpPct, 5)}%` }}>
                 {/* Highlight on top */}
                 <div className="absolute top-0 h-0.5 w-full bg-[#FFE9B2] sm:h-1"></div>
-                {/* XP Text */}
-                <span className="font-family-ThaleahFat pl-1 text-[10px] font-normal text-white sm:pl-4 sm:text-xl">
-                  XP - {displayXP}
-                </span>
               </div>
+              {/* XP Text */}
+              <span className="font-family-ThaleahFat absolute pl-1 text-[10px] font-normal text-white sm:pl-4 sm:text-xl">
+                XP - {displayXP}
+              </span>
             </div>
           </div>
         </div>
