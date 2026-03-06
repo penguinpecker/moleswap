@@ -1078,10 +1078,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                               />
                             </div>
                             <div className="text-left">
-                              <h2 className="font-family-ThaleahFat text-3xl tracking-widest text-white uppercase">
+                              <h2 className="font-family-ThaleahFat text-xl tracking-wider text-white uppercase sm:text-3xl sm:tracking-widest">
                                 {token.symbol}
                               </h2>
-                              <p className="font-family-ThaleahFat -mt-2 text-lg tracking-widest text-[#B0B0B0] uppercase">
+                              <p className="font-family-ThaleahFat -mt-1 text-sm tracking-wider text-[#B0B0B0] uppercase sm:-mt-2 sm:text-lg sm:tracking-widest">
                                 {token.name}
                               </p>
                             </div>
@@ -1214,7 +1214,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                     />
                     <div className="z-10 flex flex-col items-center gap-4">
                       <div className="h-10 w-10 animate-spin rounded-full border-4 border-yellow-100 border-t-transparent"></div>
-                      <p className="font-family-ThaleahFat text-peach-300 text-xs tracking-wider uppercase sm:text-2xl sm:tracking-widest">
+                      <p className="font-family-ThaleahFat text-peach-300 text-xs tracking-wider uppercase sm:text-base sm:tracking-widest">
                         Loading Chains...
                       </p>
                     </div>
@@ -1241,7 +1241,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                           />
                         </div>
                         <div className="text-left">
-                          <h2 className="font-family-ThaleahFat text-2xl tracking-widest text-white uppercase">
+                          <h2 className="font-family-ThaleahFat text-sm tracking-wider text-white uppercase sm:text-2xl sm:tracking-widest">
                             {network.displayName || network.name}
                           </h2>
                         </div>
@@ -1336,13 +1336,13 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                         className="h-full w-full object-cover"
                       />
                     </div>
-                    <div className="flex-1 text-left">
+                    <div className="flex-1 min-w-0 overflow-hidden text-left">
                       <div className="flex items-center justify-between gap-2">
                         <h2 className="font-family-ThaleahFat text-sm tracking-wider text-[#B0B0B0] uppercase sm:text-2xl sm:tracking-widest">
                           From
                         </h2>
                         {walletAddress && (
-                          <p className="font-family-ThaleahFat text-peach-300 text-xs tracking-wider uppercase sm:text-2xl sm:tracking-widest">
+                          <p className="font-family-ThaleahFat text-peach-300 text-xs tracking-wider uppercase sm:text-base sm:tracking-widest">
                             {formatWalletAddress(walletAddress)}
                           </p>
                         )}
@@ -1405,7 +1405,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                         className="h-full w-full object-cover"
                       />
                     </div>
-                    <div className="flex-1 text-left">
+                    <div className="flex-1 min-w-0 overflow-hidden text-left">
                       <div className="flex items-center justify-between gap-2">
                         <h2 className="font-family-ThaleahFat text-sm tracking-wider text-[#B0B0B0] uppercase sm:text-2xl sm:tracking-widest">
                           To
@@ -1427,7 +1427,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                                 onClick={(e) => e.stopPropagation()}
                                 onFocus={(e) => e.stopPropagation()}
                                 placeholder="0x..."
-                                className="font-family-ThaleahFat border-peach-300 text-peach-300 focus:ring-peach-300 w-48 rounded border bg-black/50 px-2 py-1 text-2xl tracking-widest uppercase focus:ring-1 focus:outline-none sm:w-64"
+                                className="font-family-ThaleahFat border-peach-300 text-peach-300 focus:ring-peach-300 w-36 rounded border bg-black/50 px-2 py-1 text-sm tracking-wider sm:w-48 sm:text-xl sm:tracking-widest uppercase focus:ring-1 focus:outline-none sm:w-64"
                                 autoFocus
                               />
                             ) : (
@@ -1437,7 +1437,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                                   e.stopPropagation();
                                   setIsEditingRecipient(true);
                                 }}
-                                className="font-family-ThaleahFat text-peach-300 cursor-pointer text-2xl tracking-widest uppercase hover:underline"
+                                className="font-family-ThaleahFat text-peach-300 cursor-pointer text-sm tracking-wider uppercase sm:text-xl sm:tracking-widest hover:underline"
                               >
                                 {formatWalletAddress(
                                   recipientAddress || walletAddress,
@@ -1635,8 +1635,8 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                               className="h-full w-full object-cover"
                             />
                           </div>
-                          <div className="mr-auto ml-4 text-left">
-                            <div className="font-family-ThaleahFat text-lg text-yellow-100 sm:text-3xl break-all">
+                          <div className="mr-auto ml-4 min-w-0 flex-1 overflow-hidden text-left">
+                            <div className="font-family-ThaleahFat text-lg text-yellow-100 truncate sm:text-3xl">
                               {expectedOut || "-"}
                             </div>
                             <div className="text-sm font-semibold text-[#BCBCBC]">

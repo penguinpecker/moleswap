@@ -23,7 +23,7 @@ export const NavBar = () => {
   return (
     <div className="relative flex w-full items-center justify-center">
       {/* Brown pixel bar */}
-      <div className="bg-ground font-family-ThaleahFat relative flex w-full items-center justify-center rounded-lg border-3 border-[#523525] px-4 py-2 text-base font-medium tracking-wider text-white shadow-[0px_-6px_0px_0px_#523525_inset,0px_7.5px_0px_0px_rgba(255,255,255,0.6)_inset] sm:py-4 sm:text-lg md:px-12 lg:max-w-5xl lg:justify-between lg:text-2xl">
+      <div className="bg-ground font-family-ThaleahFat relative flex w-full items-center justify-center rounded-lg border-3 border-[#523525] px-4 py-2 text-base font-medium tracking-wider text-white shadow-[0px_-6px_0px_0px_#523525_inset,0px_7.5px_0px_0px_rgba(255,255,255,0.6)_inset] sm:text-lg md:px-12 lg:max-w-5xl lg:justify-between lg:py-3 lg:text-2xl">
         {/* Mobile: logo left, hamburger right */}
         <div className="flex w-full items-center justify-between lg:hidden">
           <div className="border-ground h-12 w-12 shrink-0 overflow-hidden rounded-full border-3 bg-white shadow-[3px_3px_0_#000] sm:h-16 sm:w-16 sm:border-4">
@@ -60,9 +60,9 @@ export const NavBar = () => {
           </div>
 
           {/* Center avatar */}
-          <span className="relative w-30 transition-all">
+          <span className="relative w-20 transition-all">
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-              <div className="border-ground h-16 w-16 overflow-hidden rounded-full border-4 bg-white shadow-[4px_4px_0_#000] lg:h-20 lg:w-20">
+              <div className="border-ground h-16 w-16 overflow-hidden rounded-full border-4 bg-white shadow-[4px_4px_0_#000]">
                 <Image
                   src="/profile/profile-logo.png"
                   alt="Avatar"

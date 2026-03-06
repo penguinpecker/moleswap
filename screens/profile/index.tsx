@@ -125,7 +125,6 @@ const ProfileCard = () => {
   const maxXP = 1000; // XP bar max for visual fill
   const xpPct = Math.min((displayXP / maxXP) * 100, 100);
   const displayAddress = address?.toUpperCase() || "NOT CONNECTED";
-  const displayBalance = profile?.mole_balance ?? 0;
   const displayRank = rank?.current_rank ? `#${rank.current_rank}` : (profile?.current_rank ? `#${profile.current_rank}` : "—");
   const displayBestRank = rank?.best_rank ? `#${rank.best_rank}` : (profile?.best_rank ? `#${profile.best_rank}` : "—");
 
@@ -206,10 +205,7 @@ const ProfileCard = () => {
             </button>
           </div>
 
-          {/* Balance */}
-          <span className="block text-left text-[10px] font-normal text-white sm:text-base">
-            Balance: {displayBalance} MOLE
-          </span>
+          </div>
         </div>
         {/* Leaderboard Rank */}
         <div className="mb-2 w-full p-1.5 text-center sm:p-3">
