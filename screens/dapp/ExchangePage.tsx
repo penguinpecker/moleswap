@@ -996,17 +996,17 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   // ----- Selection UI (modal) -----
   if (selectionMode !== "none") {
     return (
-      <div className="relative flex w-full justify-center gap-4 max-sm:flex-col">
+      <div className="relative flex w-full flex-col justify-center gap-2 sm:flex-row sm:gap-4">
         {/* Token Panel */}
         <div className="flex w-full max-w-3xl flex-1 flex-col px-2 sm:p-6">
-          <div className="relative top-[40px] z-10 mx-auto flex w-[85%] items-center justify-center rounded-lg px-6 py-4 text-center">
+          <div className="relative z-10 mx-auto flex w-[90%] items-center justify-center rounded-lg px-3 py-2 text-center sm:w-[85%] sm:px-6 sm:py-4">
             <button
               onClick={handleBackToExchange}
               className="border-ground-button-border bg-ground-button absolute left-6 cursor-pointer justify-center rounded border-2 p-1 text-yellow-100 hover:scale-105"
             >
               <ArrowLeft className="h-6 w-6" />
             </button>
-            <h1 className="text-peach-300 font-family-ThaleahFat text-shadow-header text-3xl font-bold tracking-widest uppercase sm:text-5xl">
+            <h1 className="text-peach-300 font-family-ThaleahFat text-shadow-header text-xl font-bold tracking-widest uppercase sm:text-3xl lg:text-5xl">
               {selectionMode === "from" ? "FROM" : "TO"} TOKEN
             </h1>
             <Image
@@ -1150,9 +1150,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
         </div>
 
         {/* Network Panel */}
-        <div className="flex w-full flex-1 flex-col px-2 sm:max-w-xl sm:p-6">
-          <div className="relative top-[40px] z-10 mx-auto w-[85%] rounded-lg px-6 py-4 text-center">
-            <h1 className="text-peach-300 font-family-ThaleahFat text-shadow-header text-3xl font-bold tracking-widest uppercase sm:text-5xl">
+        <div className="flex w-full flex-col px-2 sm:max-w-xl sm:flex-1 sm:p-6">
+          <div className="relative z-10 mx-auto w-[85%] rounded-lg px-6 py-4 text-center">
+            <h1 className="text-peach-300 font-family-ThaleahFat text-shadow-header text-xl font-bold tracking-widest uppercase sm:text-3xl lg:text-5xl">
               NETWORK
             </h1>
             <Image
@@ -1214,7 +1214,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                     />
                     <div className="z-10 flex flex-col items-center gap-4">
                       <div className="h-10 w-10 animate-spin rounded-full border-4 border-yellow-100 border-t-transparent"></div>
-                      <p className="font-family-ThaleahFat text-peach-300 text-2xl tracking-widest uppercase">
+                      <p className="font-family-ThaleahFat text-peach-300 text-xs tracking-wider uppercase sm:text-2xl sm:tracking-widest">
                         Loading Chains...
                       </p>
                     </div>
@@ -1278,11 +1278,11 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       {showSettings ? (
         <Settings setShowSettings={setShowSettings} />
       ) : (
-        <div className="relative flex w-full justify-center gap-4 max-sm:flex-col">
+        <div className="relative flex w-full flex-col justify-center gap-2 sm:flex-row sm:gap-4">
           <div className="flex w-full max-w-3xl flex-1 flex-col px-2 sm:p-6">
             {/* Header */}
-            <div className="relative top-[40px] z-10 mx-auto flex w-[85%] items-center justify-center rounded-lg px-6 py-4 text-center">
-              <h1 className="text-peach-300 font-family-ThaleahFat text-shadow-header text-3xl font-bold tracking-widest uppercase sm:text-5xl">
+            <div className="relative z-10 mx-auto flex w-[90%] items-center justify-center rounded-lg px-3 py-2 text-center sm:w-[85%] sm:px-6 sm:py-4">
+              <h1 className="text-peach-300 font-family-ThaleahFat text-shadow-header text-xl font-bold tracking-widest uppercase sm:text-3xl lg:text-5xl">
                 EXCHANGE
               </h1>
 
@@ -1320,14 +1320,14 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
               />
 
               {/* Exchange Form */}
-              <div className="relative z-50 mx-auto mt-12 mb-6 grid w-full grid-cols-1 gap-4 p-4 sm:w-[85%]">
+              <div className="relative z-50 mx-auto mt-4 mb-4 grid w-full grid-cols-1 gap-3 p-2 sm:mt-12 sm:mb-6 sm:gap-4 sm:p-4 sm:w-[85%]">
                 {/* From */}
                 <button
                   onClick={() => openSelect("from")}
-                  className="relative z-10 mx-auto w-full cursor-pointer rounded-lg px-6 py-4 text-center transition-all hover:scale-[1.02] sm:w-[90%]"
+                  className="relative z-10 mx-auto w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-all hover:scale-[1.02] sm:px-6 sm:py-4 sm:text-center sm:w-[90%]"
                 >
                   <div className="flex items-center justify-start gap-4">
-                    <div className="border-ground-button-border h-12 w-12 overflow-hidden rounded-lg border-2 bg-black/50">
+                    <div className="border-ground-button-border h-8 w-8 overflow-hidden rounded-lg border-2 bg-black/50 sm:h-12 sm:w-12">
                       <Image
                         src={fromLogo}
                         alt="From"
@@ -1338,16 +1338,16 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                     </div>
                     <div className="flex-1 text-left">
                       <div className="flex items-center justify-between gap-2">
-                        <h2 className="font-family-ThaleahFat text-2xl tracking-widest text-[#B0B0B0] uppercase">
+                        <h2 className="font-family-ThaleahFat text-sm tracking-wider text-[#B0B0B0] uppercase sm:text-2xl sm:tracking-widest">
                           From
                         </h2>
                         {walletAddress && (
-                          <p className="font-family-ThaleahFat text-peach-300 text-2xl tracking-widest uppercase">
+                          <p className="font-family-ThaleahFat text-peach-300 text-xs tracking-wider uppercase sm:text-2xl sm:tracking-widest">
                             {formatWalletAddress(walletAddress)}
                           </p>
                         )}
                       </div>
-                      <p className="font-family-ThaleahFat text-xl font-bold tracking-widest text-[#EEEEEE] uppercase sm:text-3xl">
+                      <p className="font-family-ThaleahFat text-sm font-bold tracking-wider text-[#EEEEEE] uppercase sm:text-xl lg:text-3xl truncate">
                         {fromChain?.displayName ||
                           fromChain?.name ||
                           "Select Network"}{" "}
@@ -1393,10 +1393,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                   onClick={() => openSelect("to")}
                   role="button"
                   tabIndex={0}
-                  className="relative z-10 mx-auto w-full cursor-pointer rounded-lg px-6 py-4 text-center transition-all hover:scale-[1.02] sm:w-[90%]"
+                  className="relative z-10 mx-auto w-full cursor-pointer rounded-lg px-3 py-2 text-left transition-all hover:scale-[1.02] sm:px-6 sm:py-4 sm:text-center sm:w-[90%]"
                 >
                   <div className="flex items-center justify-start gap-4">
-                    <div className="border-ground-button-border h-12 w-12 overflow-hidden rounded-lg border-2 bg-black/50">
+                    <div className="border-ground-button-border h-8 w-8 overflow-hidden rounded-lg border-2 bg-black/50 sm:h-12 sm:w-12">
                       <Image
                         src={toLogo}
                         alt="To"
@@ -1407,7 +1407,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                     </div>
                     <div className="flex-1 text-left">
                       <div className="flex items-center justify-between gap-2">
-                        <h2 className="font-family-ThaleahFat text-2xl tracking-widest text-[#B0B0B0] uppercase">
+                        <h2 className="font-family-ThaleahFat text-sm tracking-wider text-[#B0B0B0] uppercase sm:text-2xl sm:tracking-widest">
                           To
                         </h2>
                         {walletAddress && (
@@ -1447,7 +1447,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                           </div>
                         )}
                       </div>
-                      <p className="font-family-ThaleahFat text-xl font-bold tracking-widest text-[#EEEEEE] uppercase sm:text-3xl">
+                      <p className="font-family-ThaleahFat text-sm font-bold tracking-wider text-[#EEEEEE] uppercase sm:text-xl lg:text-3xl truncate">
                         {toChain?.displayName ||
                           toChain?.name ||
                           "Select Network"}{" "}
@@ -1467,12 +1467,12 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                 {/* Amount */}
                 <div className="relative z-10 mx-auto w-full rounded-lg px-6 py-4 text-center sm:w-[90%]">
                   <div className="flex items-center justify-start gap-4">
-                    <div className="border-ground-button-border bg-ground-button h-12 w-12 rounded-lg border-2 p-4"></div>
+                    <div className="border-ground-button-border bg-ground-button h-8 w-8 rounded-lg border-2 p-2 sm:h-12 sm:w-12 sm:p-4"></div>
                     <div className="w-full text-left">
-                      <h2 className="font-family-ThaleahFat text-2xl tracking-widest text-[#B0B0B0] uppercase">
+                      <h2 className="font-family-ThaleahFat text-sm tracking-wider text-[#B0B0B0] uppercase sm:text-2xl sm:tracking-widest">
                         Send
                       </h2>
-                      <div className="font-family-ThaleahFat flex w-full items-center justify-between gap-2 text-2xl tracking-widest uppercase">
+                      <div className="font-family-ThaleahFat flex w-full items-center justify-between gap-2 text-base tracking-wider sm:text-2xl sm:tracking-widest uppercase">
                         <input
                           value={amount}
                           onChange={(e) =>
@@ -1561,7 +1561,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                 {!walletAddress ? (
                   <button
                     onClick={handleConnectWallet}
-                    className="relative w-full cursor-pointer rounded py-4 text-xl font-bold text-white transition-all hover:scale-105"
+                    className="relative w-full cursor-pointer rounded py-4 text-base font-bold text-white transition-all sm:text-xl hover:scale-105"
                   >
                     <span>CONNECT WALLET</span>
                     <Image
@@ -1578,7 +1578,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                     disabled={
                       !quote || !canQuote || !amount || Number(amount) <= 0
                     }
-                    className="relative w-full cursor-pointer rounded py-4 text-xl font-bold text-white transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="relative w-full cursor-pointer rounded py-4 text-base font-bold text-white transition-all sm:text-xl hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <span> REVIEW SWAP </span>
                     <Image
@@ -1596,9 +1596,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
 
           {/* Receive Panel (kept, auto-shows when ready) */}
           {showReceive && (
-            <div className="flex w-full flex-1 flex-col px-2 sm:max-w-xl sm:p-6">
-              <div className="relative top-[40px] z-10 mx-auto w-[85%] rounded-lg px-6 py-4 text-center">
-                <h1 className="text-peach-300 font-family-ThaleahFat text-shadow-header text-3xl font-bold tracking-widest uppercase sm:text-5xl">
+            <div className="flex w-full flex-col px-2 sm:max-w-xl sm:flex-1 sm:p-6">
+              <div className="relative z-10 mx-auto w-[85%] rounded-lg px-6 py-4 text-center">
+                <h1 className="text-peach-300 font-family-ThaleahFat text-shadow-header text-xl font-bold tracking-widest uppercase sm:text-3xl lg:text-5xl">
                   RECEIVE
                 </h1>
                 <Image
@@ -1617,7 +1617,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                   height={200}
                   className="absolute inset-0 z-[-1] h-full w-full object-fill"
                 />
-                <div className="relative z-10 mx-auto mt-12 w-[90%]">
+                <div className="relative z-10 mx-auto mt-4 w-[95%] sm:mt-12 sm:w-[90%]">
                   {!quote ? (
                     <div className="rounded bg-black/40 p-4 text-sm text-[#BCBCBC]">
                       No quote yet. Select chains, tokens and amount.
@@ -1626,7 +1626,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                     <div className="relative z-50 p-4">
                       <div className="flex w-full flex-col justify-between gap-4 py-1 sm:px-4">
                         <div className="flex items-center justify-between">
-                          <div className="border-ground-button-border h-12 w-12 overflow-hidden rounded-lg border-2 bg-black/50">
+                          <div className="border-ground-button-border h-8 w-8 overflow-hidden rounded-lg border-2 bg-black/50 sm:h-12 sm:w-12">
                             <Image
                               src={toLogo}
                               alt="Receive Logo"
@@ -1636,7 +1636,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                             />
                           </div>
                           <div className="mr-auto ml-4 text-left">
-                            <div className="font-family-ThaleahFat text-3xl text-yellow-100">
+                            <div className="font-family-ThaleahFat text-lg text-yellow-100 sm:text-3xl break-all">
                               {expectedOut || "-"}
                             </div>
                             <div className="text-sm font-semibold text-[#BCBCBC]">

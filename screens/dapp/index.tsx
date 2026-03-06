@@ -114,25 +114,25 @@ export default function DappPage() {
   }, [isLoading]);
   // console.log("progress", progress);
   return (
-    <div className="relative flex min-h-screen w-full flex-col items-center gap-4">
+    <div className="relative flex min-h-screen w-full flex-col items-center gap-2 sm:gap-4">
       <BackgroundImage isLoading={isLoading} ref={lottieRef} />
 
-      <div className="relative z-50 mx-auto mt-4 flex w-auto gap-3 px-2 py-2 max-lg:w-full max-sm:flex-col-reverse sm:gap-6 sm:px-4">
+      <div className="relative z-50 mx-auto mt-2 flex w-full flex-col-reverse gap-2 px-2 sm:mt-4 sm:w-auto sm:flex-row sm:gap-6 sm:px-4 lg:w-auto">
         <NavBar />
-        <div className="bg-peach-500 font-family-ThaleahFat relative flex w-full items-center justify-center rounded-lg border-3 border-[#523525] text-lg font-medium tracking-wider text-black shadow-[0px_-6px_0px_0px_#C97E00_inset,0px_7.5px_0px_0px_rgba(255,212,122,0.6)_inset] sm:max-w-3xl sm:justify-between sm:text-2xl">
+        <div className="bg-peach-500 font-family-ThaleahFat relative flex w-full items-center justify-center rounded-lg border-3 border-[#523525] py-1 text-base font-medium tracking-wider text-black shadow-[0px_-6px_0px_0px_#C97E00_inset,0px_7.5px_0px_0px_rgba(255,212,122,0.6)_inset] sm:max-w-3xl sm:justify-between sm:py-0 sm:text-2xl">
           <ConnectWalletButton />
         </div>
       </div>
-      {/* BANnER IMAGE   */}
+      {/* BANNER IMAGE */}
       <Image
         src="/dapp/banner.svg"
         alt="Profile"
         width={100}
         height={20}
-        className="z-10 mt-8 mb-[-50px] h-auto w-auto"
+        className="z-10 mt-4 mb-[-40px] h-auto w-auto max-w-[80%] sm:mt-8 sm:mb-[-50px] sm:max-w-none"
       />
 
-      <div className="relative z-20 mb-[40%] flex w-full flex-1 items-center justify-center sm:mb-[8%]">
+      <div className="relative z-20 mb-[20%] flex w-full flex-1 items-center justify-center px-1 sm:mb-[8%] sm:px-0">
         {renderCurrentStep()}
       </div>
     </div>

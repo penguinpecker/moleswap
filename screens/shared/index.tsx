@@ -26,7 +26,7 @@ export const NavBar = () => {
       <div className="bg-ground font-family-ThaleahFat relative flex w-full items-center justify-center rounded-lg border-3 border-[#523525] px-4 py-2 text-base font-medium tracking-wider text-white shadow-[0px_-6px_0px_0px_#523525_inset,0px_7.5px_0px_0px_rgba(255,255,255,0.6)_inset] sm:py-4 sm:text-lg md:px-12 lg:max-w-5xl lg:justify-between lg:text-2xl">
         {/* Center avatar */}
         <span className="relative flex w-full transition-all lg:hidden">
-          <div className="absolute top-1/2 left-[15%] -translate-x-1/2 -translate-y-1/2">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
             <div className="border-ground h-12 w-12 overflow-hidden rounded-full border-3 bg-white shadow-[4px_4px_0_#000] sm:h-16 sm:w-16 sm:border-4">
               <Image
                 src="/profile/profile-logo.png"
