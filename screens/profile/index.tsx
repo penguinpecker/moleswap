@@ -204,8 +204,6 @@ const ProfileCard = () => {
               <Copy className="h-3 w-3 text-black sm:h-4 sm:w-4" />
             </button>
           </div>
-
-          </div>
         </div>
         {/* Leaderboard Rank */}
         <div className="mb-2 w-full p-1.5 text-center sm:p-3">
