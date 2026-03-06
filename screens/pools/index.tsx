@@ -15,9 +15,13 @@ import { ethers } from "ethers";
 
 // ═══ HELPERS ═══
 const fmt = (n: number) => {
+  if (!Number.isFinite(n) || isNaN(n)) return "0.00";
+  if (n < 0) return "0.00";
+  if (n >= 1e12) return (n / 1e12).toFixed(2) + "T";
   if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
   if (n >= 1e6) return (n / 1e6).toFixed(2) + "M";
   if (n >= 1e3) return (n / 1e3).toFixed(1) + "K";
+  if (n < 0.01 && n > 0) return n.toExponential(2);
   return n.toFixed(2);
 };
 
@@ -59,11 +63,27 @@ const ERC20_BAL_ABI = [
 ];
 
 // sqrtPriceX96 → human-readable price (token1 per token0)
+// Uses BigInt to avoid Number overflow on uint160 values
 function sqrtPriceToPrice(sqrtPriceX96: bigint, decimals0: number, decimals1: number): number {
-  const num = Number(sqrtPriceX96);
-  const Q96 = Number(2n ** 96n);
-  const ratio = (num / Q96) ** 2;
-  return ratio * 10 ** (decimals0 - decimals1);
+  // price = (sqrtPriceX96 / 2^96)^2 * 10^(decimals0 - decimals1)
+  // To avoid overflow: price = sqrtPriceX96^2 / 2^192 * 10^(d0-d1)
+  // We scale to keep precision: multiply by 10^18 before dividing
+  const PRECISION = 10n ** 18n;
+  const Q192 = 2n ** 192n;
+  const sqr = sqrtPriceX96 * sqrtPriceX96;
+  const rawPrice = (sqr * PRECISION) / Q192;
+  const decimalAdj = decimals0 - decimals1;
+  const price = Number(rawPrice) / 1e18 * (10 ** decimalAdj);
+  return price;
+}
+
+// TVL: sum both reserves, using reserve1 * 2 as proxy (since both sides ≈ equal value in AMM)
+function calcTvl(reserve0: number, reserve1: number, price: number): number {
+  if (!Number.isFinite(price) || price <= 0) return reserve1 * 2;
+  const val0InToken1 = reserve0 * price;
+  const tvl = val0InToken1 + reserve1;
+  if (!Number.isFinite(tvl) || tvl < 0) return reserve1 * 2;
+  return tvl;
 }
 
 async function fetchPoolData(): Promise<PoolDisplay[]> {
@@ -96,9 +116,8 @@ async function fetchPoolData(): Promise<PoolDisplay[]> {
       // Price: token1 per token0
       const price = sqrtPriceToPrice(sqrtPriceX96, t0.decimals, t1.decimals);
 
-      // TVL estimate: reserve0 * price (in WPC terms) + reserve1
-      // For simplicity, TVL = reserve0 valued in token1 + reserve1
-      const tvl = reserve0 * price + reserve1;
+      // TVL from reserves
+      const tvl = calcTvl(reserve0, reserve1, price);
 
       // Fee APY estimate: (fee_tier / 1e6) * 365 * (volume_assumption / tvl)
       // Without indexer, estimate from fee tier and liquidity depth
@@ -198,12 +217,12 @@ const UtilBar = ({ pct }: { pct: number }) => {
 
 // ═══ MAIN PAGE ═══
 const PoolsPage = () => (
-  <div className="relative flex min-h-screen w-full flex-col items-center gap-4">
+  <div className="relative flex min-h-screen w-full flex-col items-center">
     <BackgroundImage />
-    <div className="relative z-50 mx-auto mt-4 mb-auto block max-sm:w-full">
+    <div className="relative z-50 mx-auto mt-4 block w-full px-2 sm:px-4">
       <NavBar />
     </div>
-    <div className="relative z-20 flex w-full flex-1 justify-center">
+    <div className="relative z-20 mt-2 flex w-full flex-1 justify-center">
       <PoolsContent />
     </div>
   </div>
@@ -248,23 +267,23 @@ const PoolsContent = () => {
 
   const totalTvl = pools.reduce((s, p) => s + p.tvl, 0);
   const totalVol = pools.reduce((s, p) => s + p.vol24h, 0);
-  const avgApy = pools.reduce((s, p) => s + p.apy, 0) / pools.length;
+  const avgApy = pools.length > 0 ? pools.reduce((s, p) => s + p.apy, 0) / pools.length : 0;
 
   const tabClass = (t: string) =>
-    `font-family-ThaleahFat text-shadow-black px-6 py-1 rounded-full text-xl sm:text-2xl transition-colors duration-150 cursor-pointer ${
+    `font-family-ThaleahFat text-shadow-black px-4 py-1 rounded-full text-base sm:text-2xl sm:px-6 transition-colors duration-150 cursor-pointer ${
       tab === t
-        ? "bg-ground-button border-4 border-ground-button-border text-peach-400"
-        : "text-gray-400 hover:text-yellow-200 border-4 border-transparent"
+        ? "bg-ground-button border-3 sm:border-4 border-ground-button-border text-peach-400"
+        : "text-gray-400 hover:text-yellow-200 border-3 sm:border-4 border-transparent"
     }`;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-2 sm:p-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-2 sm:px-6">
       {/* Header */}
-      <div className="relative top-[40px] z-10 mx-auto w-[85%] rounded-lg px-6 py-4 text-center">
-        <h1 className="text-peach-300 text-shadow-header font-family-ThaleahFat text-3xl font-bold tracking-widest uppercase sm:text-5xl">
+      <div className="relative z-10 mx-auto mt-2 w-[90%] rounded-lg px-4 py-3 text-center sm:w-[85%] sm:px-6 sm:py-4">
+        <h1 className="text-peach-300 text-shadow-header font-family-ThaleahFat text-2xl font-bold tracking-widest uppercase sm:text-5xl">
           UNIVERSAL POOLS
         </h1>
-        <p className="font-family-ThaleahFat mt-1 text-[10px] tracking-wider text-gray-400">
+        <p className="font-family-ThaleahFat mt-1 text-[8px] tracking-wider text-gray-400 sm:text-[10px]">
           PUSHCHAIN DONUT TESTNET — ALL ASSETS BRIDGED VIA PRC-20
         </p>
         <Image
@@ -281,9 +300,9 @@ const PoolsContent = () => {
         />
 
         {/* Tabs */}
-        <div className="relative z-50 mt-12 flex justify-center gap-4 px-4 pt-3">
+        <div className="relative z-50 mt-8 flex justify-center gap-2 px-2 pt-3 sm:mt-12 sm:gap-4 sm:px-4">
           <button className={tabClass("markets")} onClick={() => setTab("markets")}>
-            <Droplets className="mr-2 inline h-5 w-5" /> MARKETS
+            <Droplets className="mr-1 inline h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" /> MARKETS
           </button>
           <button className={tabClass("positions")} onClick={() => setTab("positions")}>
             POSITIONS
@@ -296,30 +315,30 @@ const PoolsContent = () => {
           ) : tab === "markets" ? (
             <>
               {/* Stats row */}
-              <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <div className="mb-3 grid grid-cols-2 gap-1.5 sm:mb-4 sm:grid-cols-4 sm:gap-2">
                 {[
                   { l: "TOTAL VALUE LOCKED", v: loading ? "..." : `$${fmt(totalTvl)}`, icon: "🏦" },
                   { l: "24H VOLUME", v: loading ? "..." : `$${fmt(totalVol)}`, icon: "📊" },
                   { l: "ACTIVE POOLS", v: loading ? "..." : `${pools.filter(p => p.active).length}/${pools.length}`, icon: "💧" },
                   { l: "AVG SUPPLY APY", v: loading ? "..." : `${avgApy.toFixed(1)}%`, icon: "📈" },
                 ].map((s, i) => (
-                  <div key={i} className="relative rounded px-3 py-2 text-center">
+                  <div key={i} className="relative overflow-hidden rounded px-2 py-2 text-center">
                     <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
                       className="absolute inset-0 z-[-1] h-full w-full rounded" />
                     <div className="text-sm">{s.icon}</div>
-                    <div className="font-family-ThaleahFat text-[8px] tracking-wider text-gray-400">{s.l}</div>
-                    <div className="font-family-ThaleahFat text-peach-300 text-lg">{s.v}</div>
+                    <div className="font-family-ThaleahFat text-[7px] tracking-wider text-gray-400 sm:text-[8px]">{s.l}</div>
+                    <div className="font-family-ThaleahFat text-peach-300 truncate text-sm sm:text-lg">{s.v}</div>
                   </div>
                 ))}
               </div>
 
               {/* Chain filter */}
-              <div className="mb-3 flex flex-wrap gap-1.5">
+              <div className="no-scrollbar mb-3 flex gap-1.5 overflow-x-auto pb-1">
                 {chains.map(ch => (
                   <button
                     key={ch}
                     onClick={() => setChainFilter(ch)}
-                    className={`font-family-ThaleahFat cursor-pointer rounded px-2.5 py-1 text-[9px] tracking-wider transition-all ${
+                    className={`font-family-ThaleahFat cursor-pointer whitespace-nowrap rounded px-2.5 py-1 text-[9px] tracking-wider transition-all ${
                       chainFilter === ch
                         ? "border border-yellow-400 text-yellow-400"
                         : "border border-gray-700 text-gray-500 hover:text-gray-300"
@@ -401,7 +420,7 @@ const PoolsContent = () => {
                           </div>
                         </div>
                       </div>
-                      <div className="font-family-ThaleahFat text-right text-sm text-white">${fmt(p.tvl)}</div>
+                      <div className="text-right"><span className="font-family-ThaleahFat truncate text-sm text-white">${fmt(p.tvl)}</span></div>
                       <div className="font-family-ThaleahFat text-right text-sm text-[#6DBB3E]">{p.apy}%</div>
                       <div className="font-family-ThaleahFat text-peach-500 text-right text-sm">{p.apr}%</div>
                       <div><UtilBar pct={p.util} /></div>
@@ -510,14 +529,14 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx }: {
   return (
     <div className="flex flex-col gap-3">
       {/* Back + title */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <button onClick={onBack} className="font-family-ThaleahFat text-peach-300 cursor-pointer bg-transparent text-sm">
           ← BACK
         </button>
-        <TokenPair t0={pool.token0} t1={pool.token1} size={32} />
-        <div>
-          <h2 className="font-family-ThaleahFat text-2xl tracking-wider text-white">{pool.name}</h2>
-          <div className="mt-0.5 flex gap-1.5">
+        <TokenPair t0={pool.token0} t1={pool.token1} size={28} />
+        <div className="min-w-0 flex-1">
+          <h2 className="font-family-ThaleahFat truncate text-xl tracking-wider text-white sm:text-2xl">{pool.name}</h2>
+          <div className="mt-0.5 flex flex-wrap gap-1">
             <Badge chain={pool.token0.sourceChain} />
             <Badge chain="Push Chain" />
             <span className="font-family-ThaleahFat bg-ground-button-border rounded-sm px-1.5 py-px text-[9px] text-gray-400">
@@ -528,7 +547,7 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx }: {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5 sm:gap-2">
         {[
           { l: "TVL", v: `$${fmt(pool.tvl)}`, c: "text-peach-500" },
           { l: "24H VOL", v: `$${fmt(pool.vol24h)}`, c: "text-[#6DBB3E]" },
@@ -663,7 +682,7 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx }: {
               className="absolute inset-0 z-[-1] h-full w-full rounded" />
             {[
               [actionTab === "supply" ? "SUPPLY APY" : "BORROW APR", `${actionTab === "supply" ? pool.apy : pool.apr}%`, actionTab === "supply" ? "text-[#6DBB3E]" : "text-peach-500"],
-              ["PRICE", `1 ${pool.token0.symbol} = ${pool.price.toFixed(4)} ${pool.token1.symbol}`, "text-peach-300"],
+              ["PRICE", `1 ${pool.token0.symbol} = ${Number.isFinite(pool.price) ? (pool.price > 1000 ? fmt(pool.price) : pool.price < 0.001 ? pool.price.toExponential(2) : pool.price.toFixed(4)) : "N/A"} ${pool.token1.symbol}`, "text-peach-300"],
               ["POOL TVL", `$${fmt(pool.tvl)}`, "text-peach-300"],
               ["SOURCE CHAIN", pool.token0.sourceChain, ""],
               ["ON-CHAIN", pool.active ? "LIVE ✓" : "NO LIQUIDITY", pool.active ? "text-[#6DBB3E]" : "text-red-400"],
