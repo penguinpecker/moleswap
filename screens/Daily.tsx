@@ -8,7 +8,7 @@ const DailyPage = () => {
     <div className="relative flex min-h-screen w-full flex-col items-center gap-4">
       <BackgroundImage />
 
-      <div className="relative z-50 mx-auto mt-4 mb-auto block max-sm:w-full">
+      <div className="relative z-50 mx-auto mt-2 block w-full px-2 sm:mt-4 sm:px-4">
         <NavBar />
       </div>
       <div className="relative z-20 flex w-full flex-1">

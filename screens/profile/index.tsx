@@ -10,17 +10,17 @@ import { usePushWallet } from "@/lib/pushchain/provider";
 import { getOrCreateUser } from "@/lib/supabase/api";
 const ProfilePage = () => {
   return (
-    <div className="relative flex h-screen w-full flex-col items-center gap-4">
+    <div className="relative flex min-h-screen w-full flex-col items-center gap-2 sm:gap-4">
       <BackgroundImage />
 
-      <div className="absolute top-0 left-1/2 z-20 flex h-40 w-full -translate-x-1/2 transform items-center justify-center gap-16 overflow-visible">
+      <div className="absolute top-0 left-1/2 z-20 flex h-28 w-full -translate-x-1/2 transform items-center justify-center gap-8 overflow-visible sm:h-40 sm:gap-16">
         {/* Left Cloud */}
         <Image
           src="/profile/Chain.png"
           alt="Cloud Left"
           width={44}
           height={44}
-          className="animate-cloud-left h-full"
+          className="animate-cloud-left h-full max-h-28 sm:max-h-full"
         />
 
         {/* Right Cloud */}
@@ -29,7 +29,7 @@ const ProfilePage = () => {
           alt="Cloud Right"
           width={44}
           height={44}
-          className="animate-cloud-left h-full"
+          className="animate-cloud-left h-full max-h-28 sm:max-h-full"
         />
 
         {/* Profile board stays static */}
@@ -38,14 +38,14 @@ const ProfilePage = () => {
           alt="Profile Board"
           width={44}
           height={44}
-          className="animate-cloud-left absolute -bottom-1/2 left-1/2 w-fit -translate-x-1/2 transform"
+          className="animate-cloud-left absolute -bottom-1/2 left-1/2 w-[70%] -translate-x-1/2 transform sm:w-fit"
         />
       </div>
 
-      <div className="relative z-50 mx-auto mt-4 mb-auto block max-sm:w-full">
+      <div className="relative z-50 mx-auto mt-2 block w-full px-2 sm:mt-4 sm:px-4">
         <NavBar />
       </div>
-      <div className="relative z-20 mt-32 mb-8 w-full px-2 sm:mx-auto sm:mb-16 sm:w-auto sm:px-0">
+      <div className="relative z-20 mt-20 mb-4 w-full px-2 sm:mx-auto sm:mt-32 sm:mb-16 sm:w-auto sm:px-0">
         <ProfileCard />
       </div>
     </div>
@@ -187,7 +187,7 @@ const ProfileCard = () => {
 
           {/* Address with Copy Button */}
           <div className="mb-1 flex flex-wrap items-center justify-between gap-1 sm:mb-2 sm:gap-2">
-            <span className="text-peach-300 font-family-ThaleahFat font-base text-xl break-all select-text text-shadow-black">
+            <span className="text-peach-300 font-family-ThaleahFat text-sm break-all select-text text-shadow-black sm:text-xl">
               {displayAddress}
             </span>
             <button className="hover:bg-accent shrink-0 cursor-pointer border-2 border-black p-1 sm:p-2">
@@ -202,7 +202,7 @@ const ProfileCard = () => {
         </div>
         {/* Leaderboard Rank */}
         <div className="mb-2 w-full p-1.5 text-center sm:p-3">
-          <div className="text-peach-300 font-family-ThaleahFat mb-1 text-left text-base sm:text-3xl">
+          <div className="text-peach-300 font-family-ThaleahFat mb-1 text-left text-sm sm:text-3xl">
             LEADERBOARD RANK:
           </div>
           <div className="relative flex w-full flex-col items-stretch gap-2 rounded-lg sm:flex-row sm:items-center sm:justify-between sm:gap-4">

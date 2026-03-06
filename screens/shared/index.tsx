@@ -23,16 +23,16 @@ export const NavBar = () => {
   return (
     <div className="relative flex w-full items-center justify-center">
       {/* Brown pixel bar */}
-      <div className="bg-ground font-family-ThaleahFat relative flex w-full items-center justify-center rounded-lg border-3 border-[#523525] px-4 py-4 text-lg font-medium tracking-wider text-white shadow-[0px_-6px_0px_0px_#523525_inset,0px_7.5px_0px_0px_rgba(255,255,255,0.6)_inset] md:px-12 lg:max-w-5xl lg:justify-between lg:text-2xl">
+      <div className="bg-ground font-family-ThaleahFat relative flex w-full items-center justify-center rounded-lg border-3 border-[#523525] px-4 py-2 text-base font-medium tracking-wider text-white shadow-[0px_-6px_0px_0px_#523525_inset,0px_7.5px_0px_0px_rgba(255,255,255,0.6)_inset] sm:py-4 sm:text-lg md:px-12 lg:max-w-5xl lg:justify-between lg:text-2xl">
         {/* Center avatar */}
         <span className="relative flex w-full transition-all lg:hidden">
           <div className="absolute top-1/2 left-[15%] -translate-x-1/2 -translate-y-1/2">
-            <div className="border-ground h-20 w-20 overflow-hidden rounded-full border-4 bg-white shadow-[4px_4px_0_#000]">
+            <div className="border-ground h-12 w-12 overflow-hidden rounded-full border-3 bg-white shadow-[4px_4px_0_#000] sm:h-16 sm:w-16 sm:border-4">
               <Image
                 src="/profile/profile-logo.png"
                 alt="Avatar"
-                width={80}
-                height={80}
+                width={64}
+                height={64}
                 className="h-full w-full object-cover"
               />
             </div>
@@ -65,7 +65,7 @@ export const NavBar = () => {
           {/* Center avatar */}
           <span className="relative w-30 transition-all">
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-              <div className="border-ground h-20 w-20 overflow-hidden rounded-full border-4 bg-white shadow-[4px_4px_0_#000]">
+              <div className="border-ground h-16 w-16 overflow-hidden rounded-full border-4 bg-white shadow-[4px_4px_0_#000] lg:h-20 lg:w-20">
                 <Image
                   src="/profile/profile-logo.png"
                   alt="Avatar"
@@ -100,35 +100,35 @@ export const NavBar = () => {
         <div className="font-family-ThaleahFat relative !z-[500] flex flex-col gap-1 p-4 text-white">
           <Link
             href="/dapp"
-            className={`${linkClass("/dapp")} rounded-lg px-4 py-3 text-center text-2xl transition-all hover:bg-[#523525]`}
+            className={`${linkClass("/dapp")} rounded-lg px-3 py-2 text-center text-lg sm:text-2xl transition-all hover:bg-[#523525]`}
             onClick={() => setIsOpen(false)}
           >
             DAPP
           </Link>
           <Link
             href="/quests"
-            className={`${linkClass("/quests")} rounded-lg px-4 py-3 text-center text-2xl transition-all hover:bg-[#523525]`}
+            className={`${linkClass("/quests")} rounded-lg px-3 py-2 text-center text-lg sm:text-2xl transition-all hover:bg-[#523525]`}
             onClick={() => setIsOpen(false)}
           >
             QUESTS
           </Link>
           <Link
             href="/pools"
-            className={`${linkClass("/pools")} rounded-lg px-4 py-3 text-center text-2xl transition-all hover:bg-[#523525]`}
+            className={`${linkClass("/pools")} rounded-lg px-3 py-2 text-center text-lg sm:text-2xl transition-all hover:bg-[#523525]`}
             onClick={() => setIsOpen(false)}
           >
             POOLS
           </Link>
           <Link
             href="/profile"
-            className={`${linkClass("/profile")} rounded-lg px-4 py-3 text-center text-2xl transition-all hover:bg-[#523525]`}
+            className={`${linkClass("/profile")} rounded-lg px-3 py-2 text-center text-lg sm:text-2xl transition-all hover:bg-[#523525]`}
             onClick={() => setIsOpen(false)}
           >
             PROFILE
           </Link>
           <Link
             href="/leaderboard"
-            className={`${linkClass("/leaderboard")} rounded-lg px-4 py-3 text-center text-2xl transition-all hover:bg-[#523525]`}
+            className={`${linkClass("/leaderboard")} rounded-lg px-3 py-2 text-center text-lg sm:text-2xl transition-all hover:bg-[#523525]`}
             onClick={() => setIsOpen(false)}
           >
             LEADERBOARD
@@ -232,7 +232,7 @@ export const Footer = () => {
 
           {/* Copyright and Links */}
           <div className="flex flex-wrap items-center justify-center gap-3 text-base sm:gap-4 sm:text-lg">
-            <p className="font-family-ThaleahFat text-peach-300/60 text-2xl font-light">
+            <p className="font-family-ThaleahFat text-peach-300/60 text-lg font-light sm:text-2xl">
               follow us on
             </p>
             {/* Social Links */}
