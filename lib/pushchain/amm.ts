@@ -289,8 +289,25 @@ export async function executeSwap(params: {
           data: wrapData,
         });
         console.log("[MoleSwap] Wrap tx:", wrapTx, "hash:", extractHash(wrapTx));
-        // Wait for wrap to confirm on chain before next tx
-        await new Promise(r => setTimeout(r, 5000));
+        
+        // Poll WPC balance to confirm wrap landed on-chain
+        const provider = getProvider();
+        const wpcContract = new ethers.Contract(CONTRACTS.WPC, ERC20_ABI, provider);
+        const balBefore = await wpcContract.balanceOf(params.recipient).catch(() => BigInt(0));
+        console.log("[MoleSwap] WPC balance before wrap:", balBefore.toString());
+        
+        for (let attempt = 0; attempt < 12; attempt++) {
+          await new Promise(r => setTimeout(r, 3000));
+          const balNow = await wpcContract.balanceOf(params.recipient).catch(() => balBefore);
+          console.log("[MoleSwap] WPC balance poll #" + (attempt + 1) + ":", balNow.toString());
+          if (balNow > balBefore) {
+            console.log("[MoleSwap] Wrap confirmed! WPC balance increased");
+            break;
+          }
+          if (attempt === 11) {
+            console.warn("[MoleSwap] Wrap may not have confirmed yet, proceeding anyway");
+          }
+        }
       } else if (typeof window !== "undefined" && (window as any).ethereum) {
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         const signer = await provider.getSigner();
@@ -340,8 +357,24 @@ export async function executeSwap(params: {
           data: approveData,
         });
         console.log("[MoleSwap] Approve tx:", approveTx, "hash:", extractHash(approveTx));
-        // Wait for approve to confirm before swap
-        await new Promise(r => setTimeout(r, 6000));
+        
+        // Poll allowance to confirm approve landed on-chain
+        const providerForPoll = getProvider();
+        const tokenForPoll = new ethers.Contract(tokenToApprove, ERC20_ABI, providerForPoll);
+        for (let attempt = 0; attempt < 10; attempt++) {
+          await new Promise(r => setTimeout(r, 3000));
+          try {
+            const newAllowance = await tokenForPoll.allowance(params.recipient, CONTRACTS.SWAP_ROUTER);
+            console.log("[MoleSwap] Allowance poll #" + (attempt + 1) + ":", newAllowance.toString());
+            if (newAllowance >= amountIn) {
+              console.log("[MoleSwap] Approve confirmed on-chain!");
+              break;
+            }
+          } catch {}
+          if (attempt === 9) {
+            console.warn("[MoleSwap] Approve may not have confirmed, proceeding anyway");
+          }
+        }
       } else if (typeof window !== "undefined" && (window as any).ethereum) {
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         const signer = await provider.getSigner();

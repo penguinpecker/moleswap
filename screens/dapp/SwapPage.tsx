@@ -726,8 +726,11 @@ export const SwapPage = ({
 
           {/* Error Message */}
           {executionError && (
-            <div className="relative z-50 rounded-lg bg-red-900/40 p-4 text-center text-sm text-red-200">
-              Error: {executionError}
+            <div className="relative z-50 max-w-full overflow-hidden rounded-lg bg-red-900/40 p-4 text-center text-sm text-red-200">
+              <p className="font-family-ThaleahFat mb-1 text-base text-red-300">SWAP FAILED</p>
+              <p className="line-clamp-3 break-words text-xs">
+                {executionError.length > 150 ? executionError.slice(0, 150) + "..." : executionError}
+              </p>
             </div>
           )}
           {/* Start Swapping Button */}
