@@ -1335,18 +1335,18 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
             {/* Swap History Modal */}
             {showHistory && (
               <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60" onClick={() => setShowHistory(false)}>
-                <div className="relative mx-4 w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+                <div className="relative mx-4 w-full max-w-xl" onClick={(e) => e.stopPropagation()}>
                   <Image src="/quest/Quest-BG.png" alt="BG" width={400} height={400} className="absolute inset-0 z-[-1] h-full w-full rounded-xl object-fill" />
-                  <div className="p-6">
-                    <div className="mb-4 flex items-center justify-between">
-                      <h3 className="font-family-ThaleahFat text-peach-300 text-3xl tracking-wider">SWAP HISTORY</h3>
-                      <button onClick={() => setShowHistory(false)} className="border-ground-button-border bg-ground-button cursor-pointer rounded border-2 p-1.5 text-yellow-100 hover:scale-105"><X className="h-6 w-6" /></button>
+                  <div className="p-6 sm:p-8">
+                    <div className="mb-5 flex items-center justify-between">
+                      <h3 className="font-family-ThaleahFat text-peach-300 text-4xl tracking-wider">SWAP HISTORY</h3>
+                      <button onClick={() => setShowHistory(false)} className="border-ground-button-border bg-ground-button cursor-pointer rounded border-2 p-2 text-yellow-100 hover:scale-105"><X className="h-6 w-6" /></button>
                     </div>
-                    <div className="custom-scrollbar max-h-[400px] overflow-y-auto">
+                    <div className="custom-scrollbar max-h-[450px] overflow-y-auto">
                       {swapHistory.length === 0 ? (
-                        <div className="py-10 text-center">
-                          <p className="font-family-ThaleahFat text-2xl text-gray-500">NO SWAPS YET</p>
-                          <p className="font-family-ThaleahFat mt-2 text-base text-gray-600">COMPLETED SWAPS WILL APPEAR HERE</p>
+                        <div className="py-12 text-center">
+                          <p className="font-family-ThaleahFat text-3xl text-gray-500">NO SWAPS YET</p>
+                          <p className="font-family-ThaleahFat mt-2 text-lg text-gray-600">COMPLETED SWAPS WILL APPEAR HERE</p>
                         </div>
                       ) : (
                         swapHistory.map((swap: any) => {
@@ -1356,17 +1356,15 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                           return (
                             <div key={swap.id} className="relative mb-3 rounded-lg px-5 py-4">
                               <Image src="/quest/header-quest-bg.png" alt="BG" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded-lg" />
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <span className="font-family-ThaleahFat text-2xl text-white">{swap.fromAmount}</span>
-                                  <span className="font-family-ThaleahFat text-peach-500 text-lg">{swap.fromSymbol}</span>
-                                  <span className="text-lg text-gray-500">→</span>
-                                  <span className="font-family-ThaleahFat text-2xl text-white">{swap.toAmount?.length > 10 ? swap.toAmount.slice(0, 10) + "..." : swap.toAmount}</span>
-                                  <span className="font-family-ThaleahFat text-lg text-[#6DBB3E]">{swap.toSymbol}</span>
-                                </div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className="font-family-ThaleahFat text-3xl text-white">{swap.fromAmount}</span>
+                                <span className="font-family-ThaleahFat text-peach-500 text-xl">{swap.fromSymbol}</span>
+                                <span className="text-xl text-gray-500">→</span>
+                                <span className="font-family-ThaleahFat text-3xl text-white">{swap.toAmount?.length > 10 ? swap.toAmount.slice(0, 10) + "..." : swap.toAmount}</span>
+                                <span className="font-family-ThaleahFat text-xl text-[#6DBB3E]">{swap.toSymbol}</span>
                               </div>
                               <div className="mt-2 flex items-center justify-between">
-                                <span className="font-family-ThaleahFat text-sm text-gray-500">
+                                <span className="font-family-ThaleahFat text-base text-gray-500">
                                   {swap.timestamp ? new Date(swap.timestamp).toLocaleString() : ""}
                                 </span>
                                 {txHash && (
@@ -1374,7 +1372,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                                     href={`https://donut.push.network/tx/${txHash}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="font-family-ThaleahFat text-peach-300 flex items-center gap-1 text-sm underline"
+                                    className="font-family-ThaleahFat text-peach-300 flex items-center gap-1 text-base underline"
                                   >
                                     {txHash.slice(0, 10)}...{txHash.slice(-6)} ↗
                                   </a>

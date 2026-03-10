@@ -277,7 +277,7 @@ const PoolsContent = () => {
     }`;
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-2 sm:px-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-2 sm:px-6">
       {/* Header */}
       <div className="relative z-10 mx-auto mt-2 w-[90%] rounded-lg px-4 py-3 text-center sm:w-[85%] sm:px-6 sm:py-4">
         <h1 className="text-peach-300 text-shadow-header font-family-ThaleahFat text-2xl font-bold tracking-widest uppercase sm:text-5xl">
@@ -315,30 +315,30 @@ const PoolsContent = () => {
           ) : tab === "markets" ? (
             <>
               {/* Stats row */}
-              <div className="mb-3 grid grid-cols-2 gap-1.5 sm:mb-4 sm:grid-cols-4 sm:gap-2">
+              <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-5 sm:grid-cols-4 sm:gap-3">
                 {[
                   { l: "TOTAL VALUE LOCKED", v: loading ? "..." : `$${fmt(totalTvl)}`, icon: "🏦" },
                   { l: "24H VOLUME", v: loading ? "..." : `$${fmt(totalVol)}`, icon: "📊" },
                   { l: "ACTIVE POOLS", v: loading ? "..." : `${pools.filter(p => p.active).length}/${pools.length}`, icon: "💧" },
                   { l: "AVG SUPPLY APY", v: loading ? "..." : `${avgApy.toFixed(1)}%`, icon: "📈" },
                 ].map((s, i) => (
-                  <div key={i} className="relative overflow-hidden rounded px-2 py-2 text-center">
+                  <div key={i} className="relative overflow-hidden rounded px-3 py-3 text-center">
                     <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
                       className="absolute inset-0 z-[-1] h-full w-full rounded" />
-                    <div className="text-sm">{s.icon}</div>
-                    <div className="font-family-ThaleahFat text-xs tracking-wider text-gray-400 sm:text-sm">{s.l}</div>
-                    <div className="font-family-ThaleahFat text-peach-300 truncate text-sm sm:text-lg">{s.v}</div>
+                    <div className="text-lg">{s.icon}</div>
+                    <div className="font-family-ThaleahFat text-sm tracking-wider text-gray-400 sm:text-base">{s.l}</div>
+                    <div className="font-family-ThaleahFat text-peach-300 truncate text-lg sm:text-2xl">{s.v}</div>
                   </div>
                 ))}
               </div>
 
               {/* Chain filter */}
-              <div className="no-scrollbar mb-3 flex gap-1.5 overflow-x-auto pb-1">
+              <div className="no-scrollbar mb-4 flex gap-2 overflow-x-auto pb-1">
                 {chains.map(ch => (
                   <button
                     key={ch}
                     onClick={() => setChainFilter(ch)}
-                    className={`font-family-ThaleahFat cursor-pointer whitespace-nowrap rounded px-2.5 py-1 text-sm tracking-wider transition-all ${
+                    className={`font-family-ThaleahFat cursor-pointer whitespace-nowrap rounded px-3 py-1.5 text-base tracking-wider transition-all ${
                       chainFilter === ch
                         ? "border border-yellow-400 text-yellow-400"
                         : "border border-gray-700 text-gray-500 hover:text-gray-300"
@@ -375,9 +375,9 @@ const PoolsContent = () => {
               </div>
 
               {/* Column headers (desktop) */}
-              <div className="hidden px-3 pb-1.5 sm:grid" style={{ gridTemplateColumns: "2.4fr .6fr .7fr .7fr .5fr .9fr" }}>
+              <div className="hidden px-3 pb-2 sm:grid" style={{ gridTemplateColumns: "2.4fr .6fr .7fr .7fr .5fr .9fr" }}>
                 {["POOL", "TVL", "SUPPLY", "BORROW", "UTIL", ""].map((h, i) => (
-                  <span key={i} className={`font-family-ThaleahFat text-sm tracking-wider text-gray-500 ${i > 0 ? "text-right" : ""}`}>
+                  <span key={i} className={`font-family-ThaleahFat text-base tracking-wider text-gray-500 ${i > 0 ? "text-right" : ""}`}>
                     {h}
                   </span>
                 ))}
@@ -407,28 +407,28 @@ const PoolsContent = () => {
                       className="absolute inset-0 z-[-1] h-full w-full rounded" />
 
                     {/* Desktop row */}
-                    <div className="hidden items-center gap-1 px-3 py-2.5 sm:grid" style={{ gridTemplateColumns: "2.4fr .6fr .7fr .7fr .5fr .9fr" }}>
-                      <div className="flex items-center gap-2">
-                        <TokenPair t0={p.token0} t1={p.token1} size={28} />
+                    <div className="hidden items-center gap-1 px-3 py-3 sm:grid" style={{ gridTemplateColumns: "2.4fr .6fr .7fr .7fr .5fr .9fr" }}>
+                      <div className="flex items-center gap-3">
+                        <TokenPair t0={p.token0} t1={p.token1} size={36} />
                         <div>
-                          <div className="font-family-ThaleahFat text-[15px] tracking-wider text-white">{p.name}</div>
+                          <div className="font-family-ThaleahFat text-xl tracking-wider text-white">{p.name}</div>
                           <div className="mt-0.5 flex gap-1">
                             <Badge chain={p.token0.sourceChain} />
-                            <span className="font-family-ThaleahFat bg-ground-button-border rounded-sm px-1 py-px text-sm text-gray-400">
+                            <span className="font-family-ThaleahFat bg-ground-button-border rounded-sm px-1.5 py-px text-sm text-gray-400">
                               {(p.fee / 10000).toFixed(2)}%
                             </span>
                           </div>
                         </div>
                       </div>
-                      <div className="text-right"><span className="font-family-ThaleahFat truncate text-sm text-white">${fmt(p.tvl)}</span></div>
-                      <div className="font-family-ThaleahFat text-right text-sm text-[#6DBB3E]">{p.apy}%</div>
-                      <div className="font-family-ThaleahFat text-peach-500 text-right text-sm">{p.apr}%</div>
+                      <div className="text-right"><span className="font-family-ThaleahFat truncate text-lg text-white">${fmt(p.tvl)}</span></div>
+                      <div className="font-family-ThaleahFat text-right text-lg text-[#6DBB3E]">{p.apy}%</div>
+                      <div className="font-family-ThaleahFat text-peach-500 text-right text-lg">{p.apr}%</div>
                       <div><UtilBar pct={p.util} /></div>
-                      <div className="flex justify-end gap-1">
-                        <span className="font-family-ThaleahFat rounded bg-[#6DBB3E] px-2 py-1 text-base text-white shadow-[0_-2px_0_#4A8B29_inset]">
+                      <div className="flex justify-end gap-1.5">
+                        <span className="font-family-ThaleahFat rounded bg-[#6DBB3E] px-3 py-1.5 text-base text-white shadow-[0_-2px_0_#4A8B29_inset]">
                           SUPPLY
                         </span>
-                        <span className="font-family-ThaleahFat bg-ground-button border-ground-button-border rounded border px-2 py-1 text-base text-white">
+                        <span className="font-family-ThaleahFat bg-ground-button border-ground-button-border rounded border px-3 py-1.5 text-base text-white">
                           BORROW
                         </span>
                       </div>
@@ -437,14 +437,14 @@ const PoolsContent = () => {
                     {/* Mobile row */}
                     <div className="flex items-center justify-between px-3 py-3 sm:hidden">
                       <div className="flex items-center gap-2">
-                        <TokenPair t0={p.token0} t1={p.token1} size={24} />
+                        <TokenPair t0={p.token0} t1={p.token1} size={32} />
                         <div>
-                          <div className="font-family-ThaleahFat text-sm text-white">{p.name}</div>
+                          <div className="font-family-ThaleahFat text-lg text-white">{p.name}</div>
                           <Badge chain={p.token0.sourceChain} />
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-family-ThaleahFat text-sm text-[#6DBB3E]">{p.apy}% APY</div>
+                        <div className="font-family-ThaleahFat text-lg text-[#6DBB3E]">{p.apy}% APY</div>
                         <div className="font-family-ThaleahFat text-base text-gray-400">${fmt(p.tvl)}</div>
                       </div>
                     </div>
