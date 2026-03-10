@@ -129,6 +129,14 @@ export async function getSwapQuote(params: {
   }
 }
 
+// ═══ HELPER: Extract tx hash from PushChain wallet response ═══
+// PushChain sendTransaction returns an Object, not a string
+function extractHash(result: any): string {
+  if (!result) return "";
+  if (typeof result === "string") return result;
+  return result.hash || result.txHash || result.transactionHash || result.tx?.hash || result.receipt?.transactionHash || JSON.stringify(result);
+}
+
 // ═══ EXECUTE SWAP ═══
 export async function executeSwap(params: {
   pushChainClient: any;
@@ -166,6 +174,9 @@ export async function executeSwap(params: {
     // 2. Approve WPC for Router
     // 3. Swap WPC → target token
 
+    // Helper: PushChain sendTransaction returns an Object, not a string hash
+    // (using module-level extractHash function)
+
     // ═══ STEP 1: Wrap native PC → WPC (if native input) ═══
     if (isNativeIn) {
       onStep(0, "WRAP PC → WPC", "signing");
@@ -179,9 +190,9 @@ export async function executeSwap(params: {
           value: amountIn,
           data: wrapData,
         });
-        console.log("[MoleSwap] Wrap tx:", wrapTx);
-        // Wait a moment for wrap to confirm
-        await new Promise(r => setTimeout(r, 3000));
+        console.log("[MoleSwap] Wrap tx:", wrapTx, "hash:", extractHash(wrapTx));
+        // Wait for wrap to confirm on chain before next tx
+        await new Promise(r => setTimeout(r, 5000));
       } else if (typeof window !== "undefined" && (window as any).ethereum) {
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         const signer = await provider.getSigner();
@@ -215,8 +226,9 @@ export async function executeSwap(params: {
         value: BigInt(0),
         data: approveData,
       });
-      console.log("[MoleSwap] Approve tx:", approveTx);
-      await new Promise(r => setTimeout(r, 3000));
+      console.log("[MoleSwap] Approve tx:", approveTx, "hash:", extractHash(approveTx));
+      // Wait for approve to confirm before swap
+      await new Promise(r => setTimeout(r, 5000));
     } else if (typeof window !== "undefined" && (window as any).ethereum) {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();
@@ -245,12 +257,13 @@ export async function executeSwap(params: {
     let txHash = "";
 
     if (params.pushChainClient?.universal?.sendTransaction) {
-      txHash = await params.pushChainClient.universal.sendTransaction({
+      const swapResult = await params.pushChainClient.universal.sendTransaction({
         to: CONTRACTS.SWAP_ROUTER,
         value: BigInt(0), // NOT sending native — tokens are already wrapped
         data: swapCalldata,
       });
-      console.log("[MoleSwap] Swap tx:", txHash);
+      txHash = extractHash(swapResult);
+      console.log("[MoleSwap] Swap tx:", swapResult, "extracted hash:", txHash);
     } else if (typeof window !== "undefined" && (window as any).ethereum) {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();
@@ -440,7 +453,7 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
         await params.pushChainClient.universal.sendTransaction({
           to: CONTRACTS.WPC, value: wrapAmount, data: wrapData,
         });
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise(r => setTimeout(r, 5000));
       } else if (typeof window !== "undefined" && (window as any).ethereum) {
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         const signer = await provider.getSigner();
@@ -461,7 +474,7 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
       await params.pushChainClient.universal.sendTransaction({
         to: token0, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.POSITION_MANAGER, MAX_UINT]),
       });
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, 5000));
     } else if (typeof window !== "undefined" && (window as any).ethereum) {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();
@@ -477,7 +490,7 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
       await params.pushChainClient.universal.sendTransaction({
         to: token1, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.POSITION_MANAGER, MAX_UINT]),
       });
-      await new Promise(r => setTimeout(r, 2000));
+      await new Promise(r => setTimeout(r, 5000));
     } else if (typeof window !== "undefined" && (window as any).ethereum) {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();
@@ -501,12 +514,13 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
 
     let txHash = "";
     if (params.pushChainClient?.universal?.sendTransaction) {
-      txHash = await params.pushChainClient.universal.sendTransaction({
+      const mintResult = await params.pushChainClient.universal.sendTransaction({
         to: CONTRACTS.POSITION_MANAGER,
         value: 0n,
         data: mintCalldata,
       });
-      console.log("[MoleSwap] Mint tx:", txHash);
+      txHash = extractHash(mintResult);
+      console.log("[MoleSwap] Mint tx:", mintResult, "extracted hash:", txHash);
     } else if (typeof window !== "undefined" && (window as any).ethereum) {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();

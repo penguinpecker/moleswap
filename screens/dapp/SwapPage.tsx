@@ -422,6 +422,24 @@ export const SwapPage = ({
       finalTxHashes = [swapResult.txHash];
       setTxHashes([swapResult.txHash]);
 
+      // Save to swap history (sessionStorage) for the history panel
+      try {
+        const historyEntry = {
+          id: Date.now(),
+          fromSymbol: swapData.fromTokenMeta?.symbol || swapData.fromToken?.slice(0, 8) || "?",
+          toSymbol: swapData.toTokenMeta?.symbol || swapData.toToken?.slice(0, 8) || "?",
+          fromAmount: swapData.amount || "0",
+          toAmount: swapData.expectedOut || "0",
+          txHash: swapResult.txHash,
+          timestamp: new Date().toISOString(),
+          fromLogo: swapData.fromTokenMeta?.logoURI || "/placeholder-logo.png",
+          toLogo: swapData.toTokenMeta?.logoURI || "/placeholder-logo.png",
+        };
+        const existing = JSON.parse(window.sessionStorage?.getItem("moleswap_history") || "[]");
+        existing.unshift(historyEntry);
+        window.sessionStorage?.setItem("moleswap_history", JSON.stringify(existing.slice(0, 50)));
+      } catch (e) { /* ignore storage errors */ }
+
       // Execute promise has resolved - swap is complete
       // Stop animation and navigate to transaction-info immediately
       setIsExecuting(false);

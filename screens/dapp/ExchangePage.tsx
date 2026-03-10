@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowUpDown, Fuel, Search } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUpDown, Clock, Fuel, Search, X } from "lucide-react";
 import { DappStep } from ".";
 import Image from "next/image";
 import { getChains, getTokensForChain, type RelayChain } from "@/lib/relay/api";
@@ -66,6 +66,16 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   const [selectedNetwork, setSelectedNetwork] = useState<string>(""); // temp network while selecting
 
   const [showSettings, setShowSettings] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+
+  // Swap history: read from sessionStorage for persistence during tab session
+  const [swapHistory, setSwapHistory] = useState<any[]>(() => {
+    if (typeof window === "undefined") return [];
+    try {
+      const stored = window.sessionStorage?.getItem("moleswap_history");
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
   // ----- Load chains (kept) -----
   useEffect(() => {
     setLoadingChains(true);
@@ -1300,6 +1310,20 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                 />
               </button>
 
+              <button
+                onClick={() => {
+                  // Refresh history from sessionStorage
+                  try {
+                    const stored = window.sessionStorage?.getItem("moleswap_history");
+                    setSwapHistory(stored ? JSON.parse(stored) : []);
+                  } catch {}
+                  setShowHistory(prev => !prev);
+                }}
+                className="border-ground-button-border bg-ground-button absolute left-6 cursor-pointer justify-center rounded border-2 p-1 text-yellow-100 transition-all hover:scale-105"
+              >
+                <Clock className="h-6 w-6" />
+              </button>
+
               <Image
                 src="/quest/header-quest-bg.png"
                 alt="Header BG"
@@ -1310,6 +1334,57 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
             </div>
 
             {/* Body */}
+            {showHistory && (
+              <div className="relative z-20 mx-auto mt-2 mb-2 w-[90%] sm:w-[85%]">
+                <div className="relative overflow-hidden rounded-lg">
+                  <Image src="/quest/Quest-BG.png" alt="BG" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full object-fill" />
+                  <div className="p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <h3 className="font-family-ThaleahFat text-peach-300 text-lg tracking-wider">SWAP HISTORY</h3>
+                      <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-white"><X className="h-4 w-4" /></button>
+                    </div>
+                    <div className="custom-scrollbar max-h-[200px] overflow-y-auto">
+                      {swapHistory.length === 0 ? (
+                        <p className="font-family-ThaleahFat py-4 text-center text-sm text-gray-500">NO SWAPS YET</p>
+                      ) : (
+                        swapHistory.map((swap: any) => {
+                          const txHash = typeof swap.txHash === "object"
+                            ? (swap.txHash?.hash || swap.txHash?.txHash || "")
+                            : (swap.txHash || "");
+                          return (
+                            <div key={swap.id} className="relative mb-1.5 rounded px-3 py-2">
+                              <Image src="/quest/header-quest-bg.png" alt="BG" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-family-ThaleahFat text-sm text-white">{swap.fromAmount}</span>
+                                  <span className="font-family-ThaleahFat text-peach-500 text-xs">{swap.fromSymbol}</span>
+                                  <span className="text-xs text-gray-500">→</span>
+                                  <span className="font-family-ThaleahFat text-sm text-white">{swap.toAmount?.slice(0, 10)}</span>
+                                  <span className="font-family-ThaleahFat text-xs text-[#6DBB3E]">{swap.toSymbol}</span>
+                                </div>
+                                {txHash && (
+                                  <a
+                                    href={`https://donut.push.network/tx/${txHash}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-family-ThaleahFat text-peach-300 text-[9px] underline"
+                                  >
+                                    {txHash.slice(0, 8)}...
+                                  </a>
+                                )}
+                              </div>
+                              <div className="font-family-ThaleahFat mt-0.5 text-[8px] text-gray-600">
+                                {swap.timestamp ? new Date(swap.timestamp).toLocaleString() : ""}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
             <div className="relative mb-6 block h-full">
               <Image
                 src="/quest/Quest-BG.png"
