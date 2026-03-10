@@ -1296,33 +1296,32 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                 EXCHANGE
               </h1>
 
-              <button
-                // onClick={() => router.push("/settings")}
-                onClick={() => setShowSettings(true)}
-                className="border-ground-button-border bg-ground-button absolute right-6 cursor-pointer justify-center rounded border-2 p-1 text-yellow-100 transition-all hover:scale-105"
-              >
-                <Image
-                  src="/dapp/settings-icons.png"
-                  alt="Settings"
-                  width={200}
-                  height={200}
-                  className="h-6 w-6"
-                />
-              </button>
-
-              <button
-                onClick={() => {
-                  // Refresh history from sessionStorage
-                  try {
-                    const stored = window.sessionStorage?.getItem("moleswap_history");
-                    setSwapHistory(stored ? JSON.parse(stored) : []);
-                  } catch {}
-                  setShowHistory(prev => !prev);
-                }}
-                className="border-ground-button-border bg-ground-button absolute left-6 cursor-pointer justify-center rounded border-2 p-1 text-yellow-100 transition-all hover:scale-105"
-              >
-                <Clock className="h-6 w-6" />
-              </button>
+              <div className="absolute right-6 flex items-center gap-1.5">
+                <button
+                  onClick={() => {
+                    try {
+                      const stored = window.sessionStorage?.getItem("moleswap_history");
+                      setSwapHistory(stored ? JSON.parse(stored) : []);
+                    } catch {}
+                    setShowHistory(prev => !prev);
+                  }}
+                  className="border-ground-button-border bg-ground-button cursor-pointer justify-center rounded border-2 p-1 text-yellow-100 transition-all hover:scale-105"
+                >
+                  <Clock className="h-6 w-6" />
+                </button>
+                <button
+                  onClick={() => setShowSettings(true)}
+                  className="border-ground-button-border bg-ground-button cursor-pointer justify-center rounded border-2 p-1 text-yellow-100 transition-all hover:scale-105"
+                >
+                  <Image
+                    src="/dapp/settings-icons.png"
+                    alt="Settings"
+                    width={200}
+                    height={200}
+                    className="h-6 w-6"
+                  />
+                </button>
+              </div>
 
               <Image
                 src="/quest/header-quest-bg.png"
@@ -1333,48 +1332,53 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
               />
             </div>
 
-            {/* Body */}
+            {/* Swap History Modal */}
             {showHistory && (
-              <div className="relative z-20 mx-auto mt-2 mb-2 w-[90%] sm:w-[85%]">
-                <div className="relative overflow-hidden rounded-lg">
-                  <Image src="/quest/Quest-BG.png" alt="BG" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full object-fill" />
-                  <div className="p-3">
-                    <div className="mb-2 flex items-center justify-between">
-                      <h3 className="font-family-ThaleahFat text-peach-300 text-lg tracking-wider">SWAP HISTORY</h3>
-                      <button onClick={() => setShowHistory(false)} className="text-gray-400 hover:text-white"><X className="h-4 w-4" /></button>
+              <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60" onClick={() => setShowHistory(false)}>
+                <div className="relative mx-4 w-full max-w-md" onClick={(e) => e.stopPropagation()}>
+                  <Image src="/quest/Quest-BG.png" alt="BG" width={400} height={400} className="absolute inset-0 z-[-1] h-full w-full rounded-xl object-fill" />
+                  <div className="p-5">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h3 className="font-family-ThaleahFat text-peach-300 text-2xl tracking-wider">SWAP HISTORY</h3>
+                      <button onClick={() => setShowHistory(false)} className="border-ground-button-border bg-ground-button cursor-pointer rounded border-2 p-1 text-yellow-100 hover:scale-105"><X className="h-5 w-5" /></button>
                     </div>
-                    <div className="custom-scrollbar max-h-[200px] overflow-y-auto">
+                    <div className="custom-scrollbar max-h-[350px] overflow-y-auto">
                       {swapHistory.length === 0 ? (
-                        <p className="font-family-ThaleahFat py-4 text-center text-sm text-gray-500">NO SWAPS YET</p>
+                        <div className="py-8 text-center">
+                          <p className="font-family-ThaleahFat text-lg text-gray-500">NO SWAPS YET</p>
+                          <p className="font-family-ThaleahFat mt-1 text-xs text-gray-600">COMPLETED SWAPS WILL APPEAR HERE</p>
+                        </div>
                       ) : (
                         swapHistory.map((swap: any) => {
                           const txHash = typeof swap.txHash === "object"
                             ? (swap.txHash?.hash || swap.txHash?.txHash || "")
                             : (swap.txHash || "");
                           return (
-                            <div key={swap.id} className="relative mb-1.5 rounded px-3 py-2">
-                              <Image src="/quest/header-quest-bg.png" alt="BG" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+                            <div key={swap.id} className="relative mb-2 rounded-lg px-4 py-3">
+                              <Image src="/quest/header-quest-bg.png" alt="BG" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded-lg" />
                               <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-2">
-                                  <span className="font-family-ThaleahFat text-sm text-white">{swap.fromAmount}</span>
-                                  <span className="font-family-ThaleahFat text-peach-500 text-xs">{swap.fromSymbol}</span>
-                                  <span className="text-xs text-gray-500">→</span>
-                                  <span className="font-family-ThaleahFat text-sm text-white">{swap.toAmount?.slice(0, 10)}</span>
-                                  <span className="font-family-ThaleahFat text-xs text-[#6DBB3E]">{swap.toSymbol}</span>
+                                  <span className="font-family-ThaleahFat text-lg text-white">{swap.fromAmount}</span>
+                                  <span className="font-family-ThaleahFat text-peach-500 text-sm">{swap.fromSymbol}</span>
+                                  <span className="text-sm text-gray-500">→</span>
+                                  <span className="font-family-ThaleahFat text-lg text-white">{swap.toAmount?.length > 10 ? swap.toAmount.slice(0, 10) + "..." : swap.toAmount}</span>
+                                  <span className="font-family-ThaleahFat text-sm text-[#6DBB3E]">{swap.toSymbol}</span>
                                 </div>
+                              </div>
+                              <div className="mt-1 flex items-center justify-between">
+                                <span className="font-family-ThaleahFat text-[10px] text-gray-500">
+                                  {swap.timestamp ? new Date(swap.timestamp).toLocaleString() : ""}
+                                </span>
                                 {txHash && (
                                   <a
                                     href={`https://donut.push.network/tx/${txHash}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="font-family-ThaleahFat text-peach-300 text-[9px] underline"
+                                    className="font-family-ThaleahFat text-peach-300 flex items-center gap-1 text-[10px] underline"
                                   >
-                                    {txHash.slice(0, 8)}...
+                                    {txHash.slice(0, 10)}...{txHash.slice(-6)} ↗
                                   </a>
                                 )}
-                              </div>
-                              <div className="font-family-ThaleahFat mt-0.5 text-[8px] text-gray-600">
-                                {swap.timestamp ? new Date(swap.timestamp).toLocaleString() : ""}
                               </div>
                             </div>
                           );
@@ -1385,6 +1389,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                 </div>
               </div>
             )}
+            {/* Body */}
             <div className="relative mb-6 block h-full">
               <Image
                 src="/quest/Quest-BG.png"
