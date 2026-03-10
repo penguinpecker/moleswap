@@ -130,11 +130,46 @@ export async function getSwapQuote(params: {
 }
 
 // ═══ HELPER: Extract tx hash from PushChain wallet response ═══
-// PushChain sendTransaction returns an Object, not a string
+// PushChain sendTransaction may return various shapes — search deeply
 function extractHash(result: any): string {
   if (!result) return "";
   if (typeof result === "string") return result;
-  return result.hash || result.txHash || result.transactionHash || result.tx?.hash || result.receipt?.transactionHash || JSON.stringify(result);
+  
+  // Direct property checks (common names)
+  const directKeys = [
+    "hash", "txHash", "txnHash", "transactionHash", "transactionhash",
+    "tx_hash", "txn_hash", "transaction_hash",
+  ];
+  for (const key of directKeys) {
+    if (result[key] && typeof result[key] === "string") return result[key];
+  }
+  
+  // Nested checks
+  if (result.tx?.hash) return result.tx.hash;
+  if (result.receipt?.transactionHash) return result.receipt.transactionHash;
+  if (result.receipt?.hash) return result.receipt.hash;
+  if (result.response?.hash) return result.response.hash;
+  if (result.data?.hash) return result.data.hash;
+  if (result.data?.txHash) return result.data.txHash;
+  
+  // Search all values for a hex string that looks like a tx hash (0x + 64 hex chars)
+  const hashRegex = /^0x[a-fA-F0-9]{64}$/;
+  for (const val of Object.values(result)) {
+    if (typeof val === "string" && hashRegex.test(val)) return val;
+  }
+  
+  // Deep search one level
+  for (const val of Object.values(result)) {
+    if (val && typeof val === "object") {
+      for (const inner of Object.values(val as any)) {
+        if (typeof inner === "string" && hashRegex.test(inner)) return inner;
+      }
+    }
+  }
+  
+  // Last resort — stringify so we don't lose it
+  console.warn("[MoleSwap] Could not extract hash from:", JSON.stringify(result).slice(0, 200));
+  return "";
 }
 
 // ═══ EXECUTE SWAP ═══
@@ -211,32 +246,50 @@ export async function executeSwap(params: {
       onStep(0, "WRAP PC → WPC", "confirmed"); // Skip — not native
     }
 
-    // ═══ STEP 2: Approve token for Router ═══
-    onStep(1, "APPROVE TOKEN", "signing");
-    console.log("[MoleSwap] Step 2: Approving token for Router...");
+    // ═══ STEP 2: Check allowance, approve only if needed ═══
+    onStep(1, "CHECKING ALLOWANCE", "signing");
+    console.log("[MoleSwap] Step 2: Checking allowance...");
     const tokenToApprove = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
     
-    if (params.pushChainClient?.universal?.sendTransaction) {
-      const approveIface = new ethers.Interface(["function approve(address spender, uint256 amount) returns (bool)"]);
-      const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
-      const approveData = approveIface.encodeFunctionData("approve", [CONTRACTS.SWAP_ROUTER, MAX_UINT]);
-      
-      const approveTx = await params.pushChainClient.universal.sendTransaction({
-        to: tokenToApprove,
-        value: BigInt(0),
-        data: approveData,
-      });
-      console.log("[MoleSwap] Approve tx:", approveTx, "hash:", extractHash(approveTx));
-      // Wait for approve to confirm before swap
-      await new Promise(r => setTimeout(r, 5000));
-    } else if (typeof window !== "undefined" && (window as any).ethereum) {
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
-      const signer = await provider.getSigner();
-      const token = new ethers.Contract(tokenToApprove, ERC20_ABI, signer);
-      const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
-      const tx = await token.approve(CONTRACTS.SWAP_ROUTER, MAX_UINT);
-      await tx.wait();
-      console.log("[MoleSwap] Approve confirmed:", tx.hash);
+    // Check on-chain allowance first
+    let needsApproval = true;
+    try {
+      const provider = getProvider();
+      const tokenContract = new ethers.Contract(tokenToApprove, ERC20_ABI, provider);
+      const currentAllowance = await tokenContract.allowance(params.recipient, CONTRACTS.SWAP_ROUTER);
+      needsApproval = currentAllowance < amountIn;
+      console.log("[MoleSwap] Current allowance:", currentAllowance.toString(), "needs:", amountIn.toString(), "approve?", needsApproval);
+    } catch (e) {
+      console.warn("[MoleSwap] Allowance check failed, will approve:", e);
+      needsApproval = true;
+    }
+
+    if (needsApproval) {
+      onStep(1, "APPROVE TOKEN", "signing");
+      if (params.pushChainClient?.universal?.sendTransaction) {
+        const approveIface = new ethers.Interface(["function approve(address spender, uint256 amount) returns (bool)"]);
+        const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
+        const approveData = approveIface.encodeFunctionData("approve", [CONTRACTS.SWAP_ROUTER, MAX_UINT]);
+        
+        const approveTx = await params.pushChainClient.universal.sendTransaction({
+          to: tokenToApprove,
+          value: BigInt(0),
+          data: approveData,
+        });
+        console.log("[MoleSwap] Approve tx:", approveTx, "hash:", extractHash(approveTx));
+        // Wait for approve to confirm before swap
+        await new Promise(r => setTimeout(r, 6000));
+      } else if (typeof window !== "undefined" && (window as any).ethereum) {
+        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const signer = await provider.getSigner();
+        const token = new ethers.Contract(tokenToApprove, ERC20_ABI, signer);
+        const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
+        const tx = await token.approve(CONTRACTS.SWAP_ROUTER, MAX_UINT);
+        await tx.wait();
+        console.log("[MoleSwap] Approve confirmed:", tx.hash);
+      }
+    } else {
+      console.log("[MoleSwap] Allowance sufficient, skipping approve");
     }
     onStep(1, "APPROVE TOKEN", "confirmed");
 

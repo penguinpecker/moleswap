@@ -23,31 +23,26 @@ export default function DappPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // Simulate loading during swap process
+  // Background animation during swap — NO auto-navigation
+  // Navigation is controlled solely by SwapPage via onNext callbacks
   useEffect(() => {
     let interval: NodeJS.Timeout;
 
     if (isLoading) {
-      // Reset progress when loading starts
       setProgress(0);
-
-      // Simulate 15-second loading process
-      const totalTime = 5000; // 15 seconds
-      const intervalTime = 50; // Update every 50ms
-      const increment = (intervalTime / totalTime) * 100;
-
+      const intervalTime = 50;
+      // Progress bar fills slowly — purely visual, never navigates
       interval = setInterval(() => {
         setProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(interval);
-            setIsLoading(false);
-            // Move to success page when loading completes
-            setCurrentStep("success");
-            return 100;
+          // Cap at 95% — SwapPage controls completion
+          if (prev >= 95) {
+            return 95;
           }
-          return prev + increment;
+          return prev + 0.3; // Slow crawl
         });
       }, intervalTime);
+    } else {
+      setProgress(0);
     }
 
     return () => {
