@@ -158,6 +158,32 @@ export async function recordSwap(params: {
     .single();
 
   if (error) console.error("Error recording swap:", error);
+
+  // ═══ Auto-progress quests on successful swap ═══
+  if (data && params.status === "success" && params.userId) {
+    try {
+      const { progressQuestsForAction } = await import("./quests");
+      const isBridge = params.fromChainId !== params.toChainId;
+      
+      await progressQuestsForAction(params.userId, "swap", {
+        tx_hash: params.txHash,
+        from_token: params.fromToken,
+        to_token: params.toToken,
+        amount: params.fromAmount,
+      });
+
+      if (isBridge) {
+        await progressQuestsForAction(params.userId, "bridge", {
+          tx_hash: params.txHash,
+          from_chain: params.fromChainId,
+          to_chain: params.toChainId,
+        });
+      }
+    } catch (e) {
+      console.error("Quest progression after swap error:", e);
+    }
+  }
+
   return data;
 }
 
@@ -236,6 +262,28 @@ export async function recordGameScore(params: {
     .single();
 
   if (error) console.error("Error recording game score:", error);
+
+  // ═══ Auto-progress quests on game play ═══
+  if (data && params.userId) {
+    try {
+      const { progressQuestsForAction } = await import("./quests");
+      await progressQuestsForAction(params.userId, "game_play", {
+        game: params.gameType,
+        score: params.score,
+      });
+
+      // If high score, also trigger game_score action
+      if (params.score > 0) {
+        await progressQuestsForAction(params.userId, "game_score", {
+          game: params.gameType,
+          score: params.score,
+        });
+      }
+    } catch (e) {
+      console.error("Quest progression after game error:", e);
+    }
+  }
+
   return data;
 }
 

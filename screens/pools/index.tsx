@@ -311,7 +311,7 @@ const PoolsContent = () => {
 
         <div className="relative z-10 mx-auto mt-4 mb-8 w-[95%] p-2 sm:p-4">
           {selectedPool ? (
-            <PoolDetail pool={selectedPool} onBack={() => setSelectedPool(null)} address={address} isConnected={isConnected} walletCtx={walletCtx} />
+            <PoolDetail pool={selectedPool} onBack={() => setSelectedPool(null)} address={address} isConnected={isConnected} walletCtx={walletCtx} pushChainClient={pushChainClient} />
           ) : tab === "markets" ? (
             <>
               {/* Stats row */}
@@ -501,28 +501,68 @@ const PoolsContent = () => {
 };
 
 // ═══ POOL DETAIL ═══
-const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx }: {
-  pool: PoolDisplay; onBack: () => void; address: string | null; isConnected: boolean; walletCtx: any;
+const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainClient }: {
+  pool: PoolDisplay; onBack: () => void; address: string | null; isConnected: boolean; walletCtx: any; pushChainClient: any;
 }) => {
   const [actionTab, setActionTab] = useState<"supply" | "borrow" | null>(null);
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [txDone, setTxDone] = useState(false);
+  const [txHash, setTxHash] = useState<string | null>(null);
+  const [txError, setTxError] = useState<string | null>(null);
+  const [stepLabel, setStepLabel] = useState("");
 
   const handleAction = async () => {
     if (!amount || !address) return;
     setLoading(true);
+    setTxError(null);
+    setTxHash(null);
+    setStepLabel("Preparing...");
     try {
-      // TODO: Wire up actual supply/borrow when contracts support lending
-      // For now, simulate tx
-      await new Promise(r => setTimeout(r, 2000));
-      setTxDone(true);
-      setAmount("");
-      setTimeout(() => setTxDone(false), 3000);
-    } catch (err) {
+      if (actionTab === "supply") {
+        // Supply = add liquidity to pool
+        const { addLiquidity } = await import("@/lib/pushchain/amm");
+        const decimals0 = pool.token0.decimals;
+        const decimals1 = pool.token1.decimals;
+
+        // User provides amount in token0 — estimate matching token1 from pool price
+        const amount0Wei = ethers.parseUnits(amount, decimals0).toString();
+        const amount1Wei = pool.price > 0
+          ? ethers.parseUnits((Number(amount) * pool.price).toFixed(Math.min(decimals1, 8)), decimals1).toString()
+          : "0";
+
+        const result = await addLiquidity({
+          pushChainClient,
+          token0: pool.pool.token0,
+          token1: pool.pool.token1,
+          fee: pool.fee,
+          amount0Desired: amount0Wei,
+          amount1Desired: amount1Wei,
+          recipient: address,
+          onStep: (_step, label, status) => {
+            setStepLabel(label);
+            if (status === "error") setTxError(label);
+          },
+        });
+
+        if (result.success) {
+          setTxHash(result.txHash);
+          setTxDone(true);
+          setAmount("");
+          setTimeout(() => setTxDone(false), 5000);
+        } else {
+          setTxError(result.error || "Transaction failed");
+        }
+      } else {
+        // Borrow is not yet supported on-chain (no lending contract)
+        setTxError("Borrowing requires a lending contract — coming soon!");
+      }
+    } catch (err: any) {
       console.error("Action failed:", err);
+      setTxError(err?.message || "Transaction failed");
     } finally {
       setLoading(false);
+      setStepLabel("");
     }
   };
 
@@ -624,6 +664,18 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx }: {
         <div className="py-4 text-center">
           <p className="font-family-ThaleahFat text-xl text-[#6DBB3E]">TRANSACTION CONFIRMED ✓</p>
           <p className="font-family-ThaleahFat mt-1 text-sm text-gray-400">+25 XP EARNED</p>
+          {txHash && (
+            <a href={`https://donut.push.network/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+              className="font-family-ThaleahFat text-peach-300 mt-1 block text-xs underline">
+              VIEW ON EXPLORER →
+            </a>
+          )}
+        </div>
+      ) : txError ? (
+        <div className="py-4 text-center">
+          <p className="font-family-ThaleahFat text-xl text-red-400">TRANSACTION FAILED ✗</p>
+          <p className="font-family-ThaleahFat mt-1 text-xs text-gray-400">{txError.slice(0, 120)}</p>
+          <button onClick={() => setTxError(null)} className="font-family-ThaleahFat text-peach-300 mt-2 cursor-pointer text-sm underline">TRY AGAIN</button>
         </div>
       ) : actionTab === null ? (
         <div className="flex gap-2">
@@ -719,7 +771,7 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx }: {
                 : "bg-peach-500 text-black shadow-[0px_-4px_0px_0px_#C97E00_inset,0px_4px_0px_0px_rgba(255,212,122,0.6)_inset]"
             }`}
           >
-            {loading ? "MINING..." : `${actionTab === "supply" ? "SUPPLY" : "BORROW"} ${pool.token0.symbol}`}
+            {loading ? (stepLabel || "MINING...") : `${actionTab === "supply" ? "SUPPLY" : "BORROW"} ${pool.token0.symbol}`}
           </button>
         </div>
       )}

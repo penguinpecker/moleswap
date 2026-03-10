@@ -111,6 +111,59 @@ export const POOL_ABI = [
   "function fee() view returns (uint24)",
 ] as const;
 
+// ═══ NonfungiblePositionManager ABI (Uniswap V3 — add/remove liquidity) ═══
+export const POSITION_MANAGER_ABI = [
+  // Mint a new liquidity position
+  "function mint(tuple(address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, address recipient, uint256 deadline) params) payable returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)",
+  // Add liquidity to an existing position
+  "function increaseLiquidity(tuple(uint256 tokenId, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, uint256 deadline) params) payable returns (uint128 liquidity, uint256 amount0, uint256 amount1)",
+  // Remove liquidity from a position
+  "function decreaseLiquidity(tuple(uint256 tokenId, uint128 liquidity, uint256 amount0Min, uint256 amount1Min, uint256 deadline) params) returns (uint256 amount0, uint256 amount1)",
+  // Collect tokens owed (after decreaseLiquidity or from fees)
+  "function collect(tuple(uint256 tokenId, address recipient, uint128 amount0Max, uint128 amount1Max) params) returns (uint256 amount0, uint256 amount1)",
+  // Burn an empty position NFT
+  "function burn(uint256 tokenId) external",
+  // Read a position
+  "function positions(uint256 tokenId) view returns (uint96 nonce, address operator, address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint128 liquidity, uint256 feeGrowthInside0LastX128, uint256 feeGrowthInside1LastX128, uint128 tokensOwed0, uint128 tokensOwed1)",
+  // ERC721 NFT functions
+  "function balanceOf(address owner) view returns (uint256)",
+  "function tokenOfOwnerByIndex(address owner, uint256 index) view returns (uint256)",
+  "function ownerOf(uint256 tokenId) view returns (address)",
+  "function approve(address to, uint256 tokenId) external",
+  // Contract references
+  "function factory() view returns (address)",
+  "function WETH9() view returns (address)",
+  // Multicall for batching
+  "function multicall(bytes[] calldata data) payable returns (bytes[] memory results)",
+  // Unwrap WETH9 (WPC) to native after collect
+  "function unwrapWETH9(uint256 amountMinimum, address recipient) external payable",
+  // Sweep leftover tokens
+  "function sweepToken(address token, uint256 amountMinimum, address recipient) external payable",
+  // Refund leftover ETH
+  "function refundETH() external payable",
+] as const;
+
+// ═══ WETH9 (WPC) ABI ═══
+export const WPC_ABI = [
+  "function deposit() payable",
+  "function withdraw(uint256 wad) external",
+  "function balanceOf(address) view returns (uint256)",
+  "function approve(address, uint256) returns (bool)",
+  "function allowance(address, address) view returns (uint256)",
+  "function transfer(address, uint256) returns (bool)",
+] as const;
+
+// ═══ Tick math constants ═══
+export const MIN_TICK = -887272;
+export const MAX_TICK = 887272;
+// Common tick spacings by fee tier
+export const TICK_SPACINGS: Record<number, number> = {
+  100: 1,    // 0.01% fee
+  500: 10,   // 0.05% fee
+  3000: 60,  // 0.3% fee
+  10000: 200, // 1% fee
+};
+
 // ═══ HELPERS ═══
 export const PUSHCHAIN_RPC = "https://evm.donut.rpc.push.org/";
 export const PUSHCHAIN_CHAIN_ID = 2442;

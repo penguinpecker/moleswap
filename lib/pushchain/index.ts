@@ -11,6 +11,8 @@ export {
   executeSwap,
   addLiquidity,
   removeLiquidity,
+  collectFees,
+  getUserPositions,
   getAllPools,
   getPairReserves,
   approveToken,
@@ -22,7 +24,7 @@ export {
   AMM_FACTORY,
 } from "./amm";
 
-export type { PushChainToken, Pool, SwapQuote } from "./amm";
+export type { PushChainToken, Pool, SwapQuote, AddLiquidityParams, RemoveLiquidityParams, LiquidityPosition } from "./amm";
 
 export {
   CONTRACTS,
@@ -31,6 +33,11 @@ export {
   getTokenByAddress,
   getTokenBySymbol,
   findPool,
+  POSITION_MANAGER_ABI,
+  WPC_ABI,
+  TICK_SPACINGS,
+  MIN_TICK,
+  MAX_TICK,
 } from "./contracts";
 
 export type { TokenInfo, PoolInfo } from "./contracts";

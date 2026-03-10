@@ -6,6 +6,7 @@ import { ethers } from "ethers";
 import {
   CONTRACTS, TOKENS, POOLS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
   QUOTER_V2_ABI, SWAP_ROUTER_ABI, ERC20_ABI, POOL_ABI,
+  POSITION_MANAGER_ABI, WPC_ABI, TICK_SPACINGS, MIN_TICK, MAX_TICK,
   getTokenByAddress, findPool,
   type TokenInfo, type PoolInfo,
 } from "./contracts";
@@ -332,17 +333,400 @@ export async function getAllPools(userAddress?: string): Promise<any[]> {
   }
 }
 
-// ═══ ADD/REMOVE LIQUIDITY (stubs) ═══
-export async function addLiquidity(params: any) {
-  console.log("Add liquidity via PositionManager:", CONTRACTS.POSITION_MANAGER);
-  return { txHash: "", success: false };
+// ═══ LIQUIDITY TYPES ═══
+export interface AddLiquidityParams {
+  pushChainClient: any;
+  token0: string;       // token0 address (must be < token1 for Uni V3)
+  token1: string;       // token1 address
+  fee: number;          // pool fee tier (e.g. 500, 3000)
+  amount0Desired: string; // wei
+  amount1Desired: string; // wei
+  recipient: string;
+  tickLower?: number;   // defaults to full range
+  tickUpper?: number;   // defaults to full range
+  slippageBps?: number; // default 50 = 0.5%
+  deadline?: number;
+  onStep?: (step: number, label: string, status: "pending" | "signing" | "confirmed" | "error") => void;
 }
 
-export async function removeLiquidity(params: any) {
-  console.log("Remove liquidity via PositionManager:", CONTRACTS.POSITION_MANAGER);
-  return { txHash: "", success: false };
+export interface RemoveLiquidityParams {
+  pushChainClient: any;
+  tokenId: number;
+  liquidity: string;     // amount of liquidity to remove (uint128)
+  amount0Min?: string;   // wei, default 0
+  amount1Min?: string;   // wei, default 0
+  recipient: string;
+  deadline?: number;
+  burnAfter?: boolean;   // burn NFT if fully removed
+  onStep?: (step: number, label: string, status: "pending" | "signing" | "confirmed" | "error") => void;
+}
+
+export interface LiquidityPosition {
+  tokenId: number;
+  token0: string;
+  token1: string;
+  fee: number;
+  tickLower: number;
+  tickUpper: number;
+  liquidity: string;
+  tokensOwed0: string;
+  tokensOwed1: string;
+  token0Info?: TokenInfo;
+  token1Info?: TokenInfo;
+  poolInfo?: PoolInfo;
+}
+
+// ═══ TICK HELPERS ═══
+function nearestUsableTick(tick: number, tickSpacing: number): number {
+  const rounded = Math.round(tick / tickSpacing) * tickSpacing;
+  if (rounded < MIN_TICK) return MIN_TICK + tickSpacing;
+  if (rounded > MAX_TICK) return MAX_TICK - tickSpacing;
+  return rounded;
+}
+
+function getFullRangeTicks(fee: number): { tickLower: number; tickUpper: number } {
+  const spacing = TICK_SPACINGS[fee] || 10;
+  return {
+    tickLower: nearestUsableTick(MIN_TICK, spacing),
+    tickUpper: nearestUsableTick(MAX_TICK, spacing),
+  };
+}
+
+// ═══ ORDER TOKENS (Uniswap V3 requires token0 < token1) ═══
+function orderTokens(tokenA: string, tokenB: string): { token0: string; token1: string; reversed: boolean } {
+  const a = tokenA.toLowerCase();
+  const b = tokenB.toLowerCase();
+  if (a < b) return { token0: tokenA, token1: tokenB, reversed: false };
+  return { token0: tokenB, token1: tokenA, reversed: true };
+}
+
+// ═══ ADD LIQUIDITY ═══
+export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash: string; success: boolean; tokenId?: number; error?: string }> {
+  const onStep = params.onStep || (() => {});
+  try {
+    const isNative0 = params.token0 === ethers.ZeroAddress;
+    const isNative1 = params.token1 === ethers.ZeroAddress;
+    const actual0 = isNative0 ? CONTRACTS.WPC : params.token0;
+    const actual1 = isNative1 ? CONTRACTS.WPC : params.token1;
+
+    // Order tokens for Uniswap V3
+    const { token0, token1, reversed } = orderTokens(actual0, actual1);
+    const amount0 = reversed ? BigInt(params.amount1Desired) : BigInt(params.amount0Desired);
+    const amount1 = reversed ? BigInt(params.amount0Desired) : BigInt(params.amount1Desired);
+
+    const slippage = params.slippageBps || 50; // 0.5%
+    const amount0Min = amount0 * BigInt(10000 - slippage) / 10000n;
+    const amount1Min = amount1 * BigInt(10000 - slippage) / 10000n;
+    const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1800;
+
+    // Tick range
+    const fee = params.fee || 500;
+    let { tickLower, tickUpper } = params.tickLower != null && params.tickUpper != null
+      ? { tickLower: params.tickLower, tickUpper: params.tickUpper }
+      : getFullRangeTicks(fee);
+
+    const needsWrap = isNative0 || isNative1;
+    const wrapAmount = isNative0 ? BigInt(params.amount0Desired) : isNative1 ? BigInt(params.amount1Desired) : 0n;
+
+    console.log("[MoleSwap] addLiquidity:", { token0: token0.slice(0,10), token1: token1.slice(0,10), fee, tickLower, tickUpper, needsWrap });
+
+    // ═══ STEP 0: Wrap native PC → WPC if needed ═══
+    if (needsWrap && wrapAmount > 0n) {
+      onStep(0, "WRAP PC → WPC", "signing");
+      const wrapIface = new ethers.Interface(["function deposit() payable"]);
+      const wrapData = wrapIface.encodeFunctionData("deposit");
+
+      if (params.pushChainClient?.universal?.sendTransaction) {
+        await params.pushChainClient.universal.sendTransaction({
+          to: CONTRACTS.WPC, value: wrapAmount, data: wrapData,
+        });
+        await new Promise(r => setTimeout(r, 3000));
+      } else if (typeof window !== "undefined" && (window as any).ethereum) {
+        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const signer = await provider.getSigner();
+        const tx = await signer.sendTransaction({ to: CONTRACTS.WPC, value: wrapAmount, data: wrapData });
+        await tx.wait();
+      }
+      onStep(0, "WRAP PC → WPC", "confirmed");
+    } else {
+      onStep(0, "WRAP PC → WPC", "confirmed");
+    }
+
+    // ═══ STEP 1: Approve token0 for PositionManager ═══
+    onStep(1, `APPROVE ${token0.slice(0,6)}...`, "signing");
+    const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
+    const approveIface = new ethers.Interface(["function approve(address, uint256) returns (bool)"]);
+
+    if (params.pushChainClient?.universal?.sendTransaction) {
+      await params.pushChainClient.universal.sendTransaction({
+        to: token0, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.POSITION_MANAGER, MAX_UINT]),
+      });
+      await new Promise(r => setTimeout(r, 2000));
+    } else if (typeof window !== "undefined" && (window as any).ethereum) {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      const t0 = new ethers.Contract(token0, ERC20_ABI, signer);
+      const tx = await t0.approve(CONTRACTS.POSITION_MANAGER, MAX_UINT);
+      await tx.wait();
+    }
+    onStep(1, `APPROVE ${token0.slice(0,6)}...`, "confirmed");
+
+    // ═══ STEP 2: Approve token1 for PositionManager ═══
+    onStep(2, `APPROVE ${token1.slice(0,6)}...`, "signing");
+    if (params.pushChainClient?.universal?.sendTransaction) {
+      await params.pushChainClient.universal.sendTransaction({
+        to: token1, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.POSITION_MANAGER, MAX_UINT]),
+      });
+      await new Promise(r => setTimeout(r, 2000));
+    } else if (typeof window !== "undefined" && (window as any).ethereum) {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      const t1 = new ethers.Contract(token1, ERC20_ABI, signer);
+      const tx = await t1.approve(CONTRACTS.POSITION_MANAGER, MAX_UINT);
+      await tx.wait();
+    }
+    onStep(2, `APPROVE ${token1.slice(0,6)}...`, "confirmed");
+
+    // ═══ STEP 3: Mint position via PositionManager ═══
+    onStep(3, "MINT POSITION", "signing");
+    const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
+    const mintCalldata = pmIface.encodeFunctionData("mint", [{
+      token0, token1, fee, tickLower, tickUpper,
+      amount0Desired: amount0,
+      amount1Desired: amount1,
+      amount0Min, amount1Min,
+      recipient: params.recipient,
+      deadline,
+    }]);
+
+    let txHash = "";
+    if (params.pushChainClient?.universal?.sendTransaction) {
+      txHash = await params.pushChainClient.universal.sendTransaction({
+        to: CONTRACTS.POSITION_MANAGER,
+        value: 0n,
+        data: mintCalldata,
+      });
+      console.log("[MoleSwap] Mint tx:", txHash);
+    } else if (typeof window !== "undefined" && (window as any).ethereum) {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      const tx = await signer.sendTransaction({
+        to: CONTRACTS.POSITION_MANAGER,
+        value: 0n,
+        data: mintCalldata,
+      });
+      const receipt = await tx.wait();
+      txHash = receipt?.hash || tx.hash;
+    } else {
+      throw new Error("No wallet available");
+    }
+
+    if (!txHash) throw new Error("Mint transaction returned empty hash");
+
+    onStep(3, "MINT POSITION", "confirmed");
+    return { txHash, success: true };
+  } catch (err: any) {
+    console.error("[MoleSwap] Add liquidity error:", err?.message || err);
+    onStep(-1, err?.message || "Unknown error", "error");
+    return { txHash: "", success: false, error: err?.message || "Add liquidity failed" };
+  }
+}
+
+// ═══ REMOVE LIQUIDITY ═══
+export async function removeLiquidity(params: RemoveLiquidityParams): Promise<{ txHash: string; success: boolean; error?: string }> {
+  const onStep = params.onStep || (() => {});
+  try {
+    const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1800;
+    const liquidity = BigInt(params.liquidity);
+    const amount0Min = BigInt(params.amount0Min || "0");
+    const amount1Min = BigInt(params.amount1Min || "0");
+    const MAX_UINT128 = BigInt("340282366920938463463374607431768211455");
+
+    const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
+
+    // ═══ STEP 0: Decrease liquidity ═══
+    onStep(0, "DECREASE LIQUIDITY", "signing");
+    const decreaseCalldata = pmIface.encodeFunctionData("decreaseLiquidity", [{
+      tokenId: params.tokenId,
+      liquidity,
+      amount0Min,
+      amount1Min,
+      deadline,
+    }]);
+
+    let txHash = "";
+    if (params.pushChainClient?.universal?.sendTransaction) {
+      txHash = await params.pushChainClient.universal.sendTransaction({
+        to: CONTRACTS.POSITION_MANAGER, value: 0n, data: decreaseCalldata,
+      });
+      await new Promise(r => setTimeout(r, 3000));
+    } else if (typeof window !== "undefined" && (window as any).ethereum) {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      const tx = await signer.sendTransaction({
+        to: CONTRACTS.POSITION_MANAGER, value: 0n, data: decreaseCalldata,
+      });
+      await tx.wait();
+      txHash = tx.hash;
+    }
+    onStep(0, "DECREASE LIQUIDITY", "confirmed");
+
+    // ═══ STEP 1: Collect tokens ═══
+    onStep(1, "COLLECT TOKENS", "signing");
+    const collectCalldata = pmIface.encodeFunctionData("collect", [{
+      tokenId: params.tokenId,
+      recipient: params.recipient,
+      amount0Max: MAX_UINT128,
+      amount1Max: MAX_UINT128,
+    }]);
+
+    if (params.pushChainClient?.universal?.sendTransaction) {
+      const collectHash = await params.pushChainClient.universal.sendTransaction({
+        to: CONTRACTS.POSITION_MANAGER, value: 0n, data: collectCalldata,
+      });
+      txHash = collectHash || txHash;
+      await new Promise(r => setTimeout(r, 3000));
+    } else if (typeof window !== "undefined" && (window as any).ethereum) {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      const tx = await signer.sendTransaction({
+        to: CONTRACTS.POSITION_MANAGER, value: 0n, data: collectCalldata,
+      });
+      await tx.wait();
+      txHash = tx.hash;
+    }
+    onStep(1, "COLLECT TOKENS", "confirmed");
+
+    // ═══ STEP 2: Burn NFT (optional, if fully removed) ═══
+    if (params.burnAfter) {
+      onStep(2, "BURN POSITION NFT", "signing");
+      const burnCalldata = pmIface.encodeFunctionData("burn", [params.tokenId]);
+
+      if (params.pushChainClient?.universal?.sendTransaction) {
+        await params.pushChainClient.universal.sendTransaction({
+          to: CONTRACTS.POSITION_MANAGER, value: 0n, data: burnCalldata,
+        });
+      } else if (typeof window !== "undefined" && (window as any).ethereum) {
+        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const signer = await provider.getSigner();
+        const tx = await signer.sendTransaction({
+          to: CONTRACTS.POSITION_MANAGER, value: 0n, data: burnCalldata,
+        });
+        await tx.wait();
+      }
+      onStep(2, "BURN POSITION NFT", "confirmed");
+    }
+
+    return { txHash, success: true };
+  } catch (err: any) {
+    console.error("[MoleSwap] Remove liquidity error:", err?.message || err);
+    onStep(-1, err?.message || "Unknown error", "error");
+    return { txHash: "", success: false, error: err?.message || "Remove liquidity failed" };
+  }
+}
+
+// ═══ GET USER POSITIONS ═══
+export async function getUserPositions(userAddress: string): Promise<LiquidityPosition[]> {
+  try {
+    const provider = getProvider();
+    const pm = new ethers.Contract(CONTRACTS.POSITION_MANAGER, POSITION_MANAGER_ABI, provider);
+
+    const balance = await pm.balanceOf(userAddress);
+    const count = Number(balance);
+    if (count === 0) return [];
+
+    const positions: LiquidityPosition[] = [];
+    for (let i = 0; i < count; i++) {
+      try {
+        const tokenId = await pm.tokenOfOwnerByIndex(userAddress, i);
+        const pos = await pm.positions(tokenId);
+
+        const token0Info = getTokenByAddress(pos.token0);
+        const token1Info = getTokenByAddress(pos.token1);
+        const poolInfo = findPool(pos.token0, pos.token1);
+
+        positions.push({
+          tokenId: Number(tokenId),
+          token0: pos.token0,
+          token1: pos.token1,
+          fee: Number(pos.fee),
+          tickLower: Number(pos.tickLower),
+          tickUpper: Number(pos.tickUpper),
+          liquidity: pos.liquidity.toString(),
+          tokensOwed0: pos.tokensOwed0.toString(),
+          tokensOwed1: pos.tokensOwed1.toString(),
+          token0Info,
+          token1Info,
+          poolInfo,
+        });
+      } catch (e) {
+        console.error(`Error reading position index ${i}:`, e);
+      }
+    }
+    return positions;
+  } catch (err) {
+    console.error("Get user positions error:", err);
+    return [];
+  }
+}
+
+// ═══ COLLECT FEES FROM POSITION ═══
+export async function collectFees(params: {
+  pushChainClient: any;
+  tokenId: number;
+  recipient: string;
+}): Promise<{ txHash: string; success: boolean; error?: string }> {
+  try {
+    const MAX_UINT128 = BigInt("340282366920938463463374607431768211455");
+    const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
+    const calldata = pmIface.encodeFunctionData("collect", [{
+      tokenId: params.tokenId,
+      recipient: params.recipient,
+      amount0Max: MAX_UINT128,
+      amount1Max: MAX_UINT128,
+    }]);
+
+    let txHash = "";
+    if (params.pushChainClient?.universal?.sendTransaction) {
+      txHash = await params.pushChainClient.universal.sendTransaction({
+        to: CONTRACTS.POSITION_MANAGER, value: 0n, data: calldata,
+      });
+    } else if (typeof window !== "undefined" && (window as any).ethereum) {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      const tx = await signer.sendTransaction({ to: CONTRACTS.POSITION_MANAGER, value: 0n, data: calldata });
+      await tx.wait();
+      txHash = tx.hash;
+    }
+
+    return { txHash, success: true };
+  } catch (err: any) {
+    return { txHash: "", success: false, error: err?.message };
+  }
 }
 
 export async function getPairReserves(tokenA: string, tokenB: string) {
-  return { reserve0: "0", reserve1: "0" };
+  try {
+    const actualA = tokenA === ethers.ZeroAddress ? CONTRACTS.WPC : tokenA;
+    const actualB = tokenB === ethers.ZeroAddress ? CONTRACTS.WPC : tokenB;
+    const pool = findPool(actualA, actualB);
+    if (!pool) return { reserve0: "0", reserve1: "0" };
+
+    const provider = getProvider();
+    const token0Contract = new ethers.Contract(pool.token0, ERC20_ABI, provider);
+    const token1Contract = new ethers.Contract(pool.token1, ERC20_ABI, provider);
+
+    const [bal0, bal1] = await Promise.all([
+      token0Contract.balanceOf(pool.address),
+      token1Contract.balanceOf(pool.address),
+    ]);
+
+    return {
+      reserve0: bal0.toString(),
+      reserve1: bal1.toString(),
+    };
+  } catch (err) {
+    console.error("getPairReserves error:", err);
+    return { reserve0: "0", reserve1: "0" };
+  }
 }

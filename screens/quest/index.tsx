@@ -7,6 +7,9 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import { NavBar } from "../shared";
 import { getQuests } from "@/lib/supabase/api";
+import { getQuestsWithProgress, type QuestWithProgress } from "@/lib/supabase/quests";
+import { usePushWalletContext, usePushChainClient, PushUI } from "@pushchain/ui-kit";
+import { getOrCreateUser } from "@/lib/supabase/api";
 
 const mockQuests = [
   {
@@ -138,26 +141,71 @@ export const QuestCardComponent = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [activeTab, setActiveTab] = useState<"main" | "dapp" | "game">("main");
   const [allQuests, setAllQuests] = useState(mockQuests);
+  const [questProgress, setQuestProgress] = useState<Map<string, QuestWithProgress>>(new Map());
   const questsPerPage = 8;
 
+  const walletCtx = usePushWalletContext();
+  const { pushChainClient } = usePushChainClient();
+  const isConnected = walletCtx?.connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
+  const walletAddress = walletCtx?.universalAccount?.address || pushChainClient?.universal?.account || null;
+
   useEffect(() => {
-    getQuests().then((data) => {
+    const loadQuests = async () => {
+      // Try to get user ID for progress
+      let userId: string | null = null;
+      if (walletAddress) {
+        const user = await getOrCreateUser(walletAddress);
+        userId = user?.id || null;
+      }
+
+      // Use enhanced API with progress if we have a userId
+      const data = userId
+        ? await getQuestsWithProgress(userId)
+        : await getQuestsWithProgress();
+
       if (data && data.length > 0) {
         const mapped = data.map((q: any) => ({
           id: q.id,
           image: q.image_url || `/quest/main-quest-${q.sort_order}.png`,
           alt: q.title || `Quest ${q.sort_order}`,
           quest_type: q.quest_type,
+          category: q.category || q.quest_type,
+          progress: q.progress || 0,
+          required_count: q.required_count || 1,
+          is_completed: q.is_completed || false,
+          is_claimed: q.is_claimed || false,
+          xp_reward: q.xp_reward || 0,
+          difficulty: q.difficulty || "easy",
+          title: q.title,
         }));
         setAllQuests(mapped);
+
+        // Build progress map
+        const pMap = new Map<string, QuestWithProgress>();
+        data.forEach((q: QuestWithProgress) => pMap.set(q.id, q));
+        setQuestProgress(pMap);
+      } else {
+        // Fallback to basic getQuests
+        const basicData = await getQuests();
+        if (basicData && basicData.length > 0) {
+          const mapped = basicData.map((q: any) => ({
+            id: q.id,
+            image: q.image_url || `/quest/main-quest-${q.sort_order}.png`,
+            alt: q.title || `Quest ${q.sort_order}`,
+            quest_type: q.quest_type,
+          }));
+          setAllQuests(mapped);
+        }
       }
-    }).catch(console.error);
-  }, []);
+    };
+
+    loadQuests().catch(console.error);
+  }, [walletAddress]);
 
   useEffect(() => { setCurrentPage(1); }, [activeTab]);
 
   const filteredQuests = allQuests.filter((q: any) =>
-    !q.quest_type || q.quest_type === activeTab || activeTab === "main"
+    !q.quest_type || q.quest_type === activeTab || q.category === activeTab || activeTab === "main"
   );
 
   const totalPages = Math.ceil(filteredQuests.length / questsPerPage);
@@ -233,15 +281,54 @@ export const QuestCardComponent = () => {
 
         {/* Quest Grid */}
         <div className="relative mb-6 grid grid-cols-1 gap-4 p-4 md:grid-cols-2">
-          {currentQuests.map((quest) => (
-            <Image
-              src={quest.image}
-              key={quest.id}
-              alt={quest.alt}
-              width={200}
-              height={200}
-              className="w-full"
-            />
+          {currentQuests.map((quest: any) => (
+            <div key={quest.id} className="group relative cursor-pointer" onClick={() => handleQuestClick(quest.id)}>
+              <Image
+                src={quest.image}
+                alt={quest.alt}
+                width={200}
+                height={200}
+                className={`w-full transition-all ${quest.is_completed ? "brightness-75" : "group-hover:scale-[1.02]"}`}
+              />
+              {/* Progress overlay */}
+              {quest.progress !== undefined && quest.required_count > 1 && !quest.is_completed && (
+                <div className="absolute bottom-2 left-2 right-2">
+                  <div className="border-ground-button-border rounded border bg-black/70 px-2 py-1">
+                    <div className="mb-0.5 flex justify-between">
+                      <span className="font-family-ThaleahFat text-[9px] text-gray-300">PROGRESS</span>
+                      <span className="font-family-ThaleahFat text-peach-300 text-[9px]">{quest.progress}/{quest.required_count}</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded bg-[#281a12]">
+                      <div className="h-full rounded bg-gradient-to-r from-[#6DBB3E] to-[#feae34]"
+                        style={{ width: `${Math.min(100, (quest.progress / quest.required_count) * 100)}%` }} />
+                    </div>
+                  </div>
+                </div>
+              )}
+              {/* Completed badge */}
+              {quest.is_completed && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                  <div className="rounded-lg bg-[#6DBB3E]/90 px-4 py-2">
+                    <span className="font-family-ThaleahFat text-xl tracking-wider text-white">COMPLETED ✓</span>
+                    {quest.xp_reward > 0 && (
+                      <p className="font-family-ThaleahFat text-center text-sm text-white/80">+{quest.xp_reward} XP</p>
+                    )}
+                  </div>
+                </div>
+              )}
+              {/* Difficulty badge */}
+              {quest.difficulty && quest.difficulty !== "easy" && (
+                <div className="absolute top-2 right-2">
+                  <span className={`font-family-ThaleahFat rounded-sm px-1.5 py-0.5 text-[8px] uppercase ${
+                    quest.difficulty === "legendary" ? "bg-purple-600 text-white" :
+                    quest.difficulty === "hard" ? "bg-red-600 text-white" :
+                    "bg-yellow-600 text-white"
+                  }`}>
+                    {quest.difficulty}
+                  </span>
+                </div>
+              )}
+            </div>
           ))}
         </div>
 
