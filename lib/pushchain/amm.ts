@@ -65,6 +65,21 @@ export async function getSwapQuote(params: {
     const actualIn = params.tokenIn === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenIn;
     const actualOut = params.tokenOut === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenOut;
 
+    // ═══ Handle PC ↔ WPC as 1:1 wrap/unwrap (no router quote needed) ═══
+    const isWrapOrUnwrap = actualIn.toLowerCase() === actualOut.toLowerCase();
+    if (isWrapOrUnwrap) {
+      return {
+        amountIn: params.amountIn,
+        amountOut: params.amountIn, // 1:1
+        tokenIn: tokenInInfo,
+        tokenOut: tokenOutInfo,
+        fee: 0,
+        pool: { address: CONTRACTS.WPC, token0: params.tokenIn, token1: params.tokenOut, fee: 0, name: "WRAP" } as any,
+        priceImpact: 0,
+        gasEstimate: "50000",
+      };
+    }
+
     // Find direct pool or route through WPC
     let pool = findPool(actualIn, actualOut);
     let fee = params.fee || pool?.fee || 500;
@@ -204,13 +219,61 @@ export async function executeSwap(params: {
       fee,
     });
 
-    // For native PC swaps, we need to:
-    // 1. Wrap PC → WPC
-    // 2. Approve WPC for Router
-    // 3. Swap WPC → target token
+    // ═══ DETECT WRAP/UNWRAP (PC ↔ WPC) — no router needed ═══
+    const isWrap = isNativeIn && actualOut.toLowerCase() === CONTRACTS.WPC.toLowerCase();
+    const isUnwrap = actualIn.toLowerCase() === CONTRACTS.WPC.toLowerCase() && params.tokenOut === ethers.ZeroAddress;
+    
+    if (isWrap) {
+      // Pure wrap: PC → WPC via deposit()
+      onStep(0, "WRAP PC → WPC", "signing");
+      console.log("[MoleSwap] Pure wrap operation: PC → WPC");
+      const wpcIface = new ethers.Interface(["function deposit() payable"]);
+      const wrapData = wpcIface.encodeFunctionData("deposit");
+      let txHash = "";
 
-    // Helper: PushChain sendTransaction returns an Object, not a string hash
-    // (using module-level extractHash function)
+      if (params.pushChainClient?.universal?.sendTransaction) {
+        const wrapResult = await params.pushChainClient.universal.sendTransaction({
+          to: CONTRACTS.WPC, value: amountIn, data: wrapData,
+        });
+        txHash = extractHash(wrapResult);
+        console.log("[MoleSwap] Wrap tx:", wrapResult, "hash:", txHash);
+      } else if (typeof window !== "undefined" && (window as any).ethereum) {
+        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const signer = await provider.getSigner();
+        const tx = await signer.sendTransaction({ to: CONTRACTS.WPC, value: amountIn, data: wrapData });
+        await tx.wait();
+        txHash = tx.hash;
+      }
+      onStep(0, "WRAP PC → WPC", "confirmed");
+      return { txHash, success: true };
+    }
+
+    if (isUnwrap) {
+      // Pure unwrap: WPC → PC via withdraw()
+      onStep(0, "UNWRAP WPC → PC", "signing");
+      console.log("[MoleSwap] Pure unwrap operation: WPC → PC");
+      const wpcIface = new ethers.Interface(["function withdraw(uint256 wad)"]);
+      const unwrapData = wpcIface.encodeFunctionData("withdraw", [amountIn]);
+      let txHash = "";
+
+      if (params.pushChainClient?.universal?.sendTransaction) {
+        const unwrapResult = await params.pushChainClient.universal.sendTransaction({
+          to: CONTRACTS.WPC, value: BigInt(0), data: unwrapData,
+        });
+        txHash = extractHash(unwrapResult);
+        console.log("[MoleSwap] Unwrap tx:", unwrapResult, "hash:", txHash);
+      } else if (typeof window !== "undefined" && (window as any).ethereum) {
+        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const signer = await provider.getSigner();
+        const tx = await signer.sendTransaction({ to: CONTRACTS.WPC, value: BigInt(0), data: unwrapData });
+        await tx.wait();
+        txHash = tx.hash;
+      }
+      onStep(0, "UNWRAP WPC → PC", "confirmed");
+      return { txHash, success: true };
+    }
+
+    // ═══ ACTUAL SWAP (not wrap/unwrap) ═══
 
     // ═══ STEP 1: Wrap native PC → WPC (if native input) ═══
     if (isNativeIn) {

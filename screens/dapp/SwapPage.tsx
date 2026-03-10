@@ -8,6 +8,17 @@ import { getWalletClient } from "@/lib/wallet/walletClient";
 import type { RelayCurrency, RelayChain } from "@/lib/relay/api";
 import { usePushWallet } from "@/lib/pushchain/provider";
 
+// Extract tx hash from PushChain SDK response (may be Object)
+const extractHash = (result: any): string => {
+  if (!result) return "";
+  if (typeof result === "string") return result;
+  const keys = ["hash", "txHash", "transactionHash"];
+  for (const k of keys) { if (result[k] && typeof result[k] === "string") return result[k]; }
+  if (result.tx?.hash) return result.tx.hash;
+  if (result.receipt?.transactionHash) return result.receipt.transactionHash;
+  return "";
+};
+
 interface SwapPageProps {
   onNext: (step: DappStep, data?: any) => void;
   onBack: () => void;
@@ -439,6 +450,30 @@ export const SwapPage = ({
         existing.unshift(historyEntry);
         window.sessionStorage?.setItem("moleswap_history", JSON.stringify(existing.slice(0, 50)));
       } catch (e) { /* ignore storage errors */ }
+
+      // Save to Supabase for persistent history
+      try {
+        const { getOrCreateUser, recordSwap } = await import("@/lib/supabase/api");
+        if (currentAddress) {
+          const user = await getOrCreateUser(currentAddress);
+          if (user?.id) {
+            await recordSwap({
+              userId: user.id,
+              fromChainId: swapData.fromChain?.id || 2442,
+              toChainId: swapData.toChain?.id || 2442,
+              fromToken: swapData.fromToken || "",
+              toToken: swapData.toToken || "",
+              fromAmount: swapData.amount || "0",
+              toAmount: swapData.expectedOut || "0",
+              txHash: typeof swapResult.txHash === "string" ? swapResult.txHash : extractHash(swapResult.txHash),
+              status: "success",
+            });
+            console.log("[MoleSwap] Swap recorded in Supabase");
+          }
+        }
+      } catch (e) {
+        console.warn("[MoleSwap] Failed to record swap in Supabase:", e);
+      }
 
       // Execute promise has resolved - swap is complete
       // Stop animation and navigate to transaction-info immediately
