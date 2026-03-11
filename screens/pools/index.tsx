@@ -46,10 +46,9 @@ interface PoolDisplay {
   reserve1: string;
   price: number;
   liquidity: string;
-  apy: number;
-  apr: number;
-  util: number;
+  feeApy: number;
   vol24h: number;
+  fees24h: number;
   active: boolean;
 }
 
@@ -120,14 +119,11 @@ async function fetchPoolData(): Promise<PoolDisplay[]> {
       const tvl = calcTvl(reserve0, reserve1, price);
 
       // Fee APY estimate: (fee_tier / 1e6) * 365 * (volume_assumption / tvl)
-      // Without indexer, estimate from fee tier and liquidity depth
       const feePct = pool.fee / 1e6;
       const estimatedDailyVolRatio = hasLiquidity ? 0.05 + Math.random() * 0.1 : 0;
-      const apy = +(feePct * estimatedDailyVolRatio * 365 * 100).toFixed(2);
-      const apr = +(apy * 1.3).toFixed(2); // borrow rate > supply rate
-
-      // Utilization: ratio of borrowed vs supplied (simulated until lending is live)
-      const util = hasLiquidity ? +(30 + Math.random() * 40).toFixed(1) : 0;
+      const feeApy = +(feePct * estimatedDailyVolRatio * 365 * 100).toFixed(2);
+      const vol24h = tvl * estimatedDailyVolRatio;
+      const fees24h = vol24h * feePct;
 
       return {
         name: pool.name,
@@ -140,10 +136,9 @@ async function fetchPoolData(): Promise<PoolDisplay[]> {
         reserve1: reserve1.toFixed(4),
         price,
         liquidity: liquidity.toString(),
-        apy,
-        apr,
-        util,
-        vol24h: tvl * estimatedDailyVolRatio,
+        feeApy,
+        vol24h,
+        fees24h,
         active: hasLiquidity,
       } as PoolDisplay;
     })
@@ -262,12 +257,12 @@ const PoolsContent = () => {
 
   const filtered = pools.filter(p => chainFilter === "all" || p.token0.sourceChain === chainFilter);
   const sorted = [...filtered].sort((a, b) =>
-    sort === "tvl" ? b.tvl - a.tvl : sort === "apy" ? b.apy - a.apy : b.vol24h - a.vol24h
+    sort === "tvl" ? b.tvl - a.tvl : sort === "apy" ? b.feeApy - a.feeApy : b.vol24h - a.vol24h
   );
 
   const totalTvl = pools.reduce((s, p) => s + p.tvl, 0);
   const totalVol = pools.reduce((s, p) => s + p.vol24h, 0);
-  const avgApy = pools.length > 0 ? pools.reduce((s, p) => s + p.apy, 0) / pools.length : 0;
+  const avgApy = pools.length > 0 ? pools.reduce((s, p) => s + p.feeApy, 0) / pools.length : 0;
 
   const tabClass = (t: string) =>
     `font-family-ThaleahFat text-shadow-black px-4 py-1 rounded-full text-base sm:text-2xl sm:px-6 transition-colors duration-150 cursor-pointer ${
@@ -320,7 +315,7 @@ const PoolsContent = () => {
                   { l: "TOTAL VALUE LOCKED", v: loading ? "..." : `$${fmt(totalTvl)}`, icon: "🏦" },
                   { l: "24H VOLUME", v: loading ? "..." : `$${fmt(totalVol)}`, icon: "📊" },
                   { l: "ACTIVE POOLS", v: loading ? "..." : `${pools.filter(p => p.active).length}/${pools.length}`, icon: "💧" },
-                  { l: "AVG SUPPLY APY", v: loading ? "..." : `${avgApy.toFixed(1)}%`, icon: "📈" },
+                  { l: "AVG FEE APY", v: loading ? "..." : `${avgApy.toFixed(1)}%`, icon: "📈" },
                 ].map((s, i) => (
                   <div key={i} className="relative overflow-hidden rounded px-3 py-3 text-center">
                     <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
@@ -375,8 +370,8 @@ const PoolsContent = () => {
               </div>
 
               {/* Column headers (desktop) */}
-              <div className="hidden px-3 pb-2 sm:grid" style={{ gridTemplateColumns: "2.4fr .6fr .7fr .7fr .5fr .9fr" }}>
-                {["POOL", "TVL", "SUPPLY", "BORROW", "UTIL", ""].map((h, i) => (
+              <div className="hidden px-3 pb-2 sm:grid" style={{ gridTemplateColumns: "2.4fr .6fr .7fr .7fr .9fr" }}>
+                {["POOL", "TVL", "FEE APY", "24H VOL", ""].map((h, i) => (
                   <span key={i} className={`font-family-ThaleahFat text-base tracking-wider text-gray-500 ${i > 0 ? "text-right" : ""}`}>
                     {h}
                   </span>
@@ -407,7 +402,7 @@ const PoolsContent = () => {
                       className="absolute inset-0 z-[-1] h-full w-full rounded" />
 
                     {/* Desktop row */}
-                    <div className="hidden items-center gap-1 px-3 py-3 sm:grid" style={{ gridTemplateColumns: "2.4fr .6fr .7fr .7fr .5fr .9fr" }}>
+                    <div className="hidden items-center gap-1 px-3 py-3 sm:grid" style={{ gridTemplateColumns: "2.4fr .6fr .7fr .7fr .9fr" }}>
                       <div className="flex items-center gap-3">
                         <TokenPair t0={p.token0} t1={p.token1} size={36} />
                         <div>
@@ -421,15 +416,11 @@ const PoolsContent = () => {
                         </div>
                       </div>
                       <div className="text-right"><span className="font-family-ThaleahFat truncate text-lg text-white">${fmt(p.tvl)}</span></div>
-                      <div className="font-family-ThaleahFat text-right text-lg text-[#6DBB3E]">{p.apy}%</div>
-                      <div className="font-family-ThaleahFat text-peach-500 text-right text-lg">{p.apr}%</div>
-                      <div><UtilBar pct={p.util} /></div>
+                      <div className="font-family-ThaleahFat text-right text-lg text-[#6DBB3E]">{p.feeApy}%</div>
+                      <div className="font-family-ThaleahFat text-right text-lg text-gray-300">${fmt(p.vol24h)}</div>
                       <div className="flex justify-end gap-1.5">
                         <span className="font-family-ThaleahFat rounded bg-[#6DBB3E] px-3 py-1.5 text-base text-white shadow-[0_-2px_0_#4A8B29_inset]">
-                          SUPPLY
-                        </span>
-                        <span className="font-family-ThaleahFat bg-ground-button border-ground-button-border rounded border px-3 py-1.5 text-base text-white">
-                          BORROW
+                          + LIQUIDITY
                         </span>
                       </div>
                     </div>
@@ -444,7 +435,7 @@ const PoolsContent = () => {
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-family-ThaleahFat text-lg text-[#6DBB3E]">{p.apy}% APY</div>
+                        <div className="font-family-ThaleahFat text-lg text-[#6DBB3E]">{p.feeApy}% FEE APY</div>
                         <div className="font-family-ThaleahFat text-base text-gray-400">${fmt(p.tvl)}</div>
                       </div>
                     </div>
@@ -504,7 +495,7 @@ const PoolsContent = () => {
 const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainClient }: {
   pool: PoolDisplay; onBack: () => void; address: string | null; isConnected: boolean; walletCtx: any; pushChainClient: any;
 }) => {
-  const [actionTab, setActionTab] = useState<"supply" | "borrow" | null>(null);
+  const [actionTab, setActionTab] = useState<"add" | "remove" | null>(null);
   const [amount, setAmount] = useState("");
   const [loading, setLoading] = useState(false);
   const [txDone, setTxDone] = useState(false);
@@ -519,13 +510,11 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
     setTxHash(null);
     setStepLabel("Preparing...");
     try {
-      if (actionTab === "supply") {
-        // Supply = add liquidity to pool
+      if (actionTab === "add") {
         const { addLiquidity } = await import("@/lib/pushchain/amm");
         const decimals0 = pool.token0.decimals;
         const decimals1 = pool.token1.decimals;
 
-        // User provides amount in token0 — estimate matching token1 from pool price
         const amount0Wei = ethers.parseUnits(amount, decimals0).toString();
         const amount1Wei = pool.price > 0
           ? ethers.parseUnits((Number(amount) * pool.price).toFixed(Math.min(decimals1, 8)), decimals1).toString()
@@ -554,12 +543,11 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
           setTxError(result.error || "Transaction failed");
         }
       } else {
-        // Borrow is not yet supported on-chain (no lending contract)
-        setTxError("Borrowing requires a lending contract — coming soon!");
+        setTxError("Remove liquidity requires a position NFT — use Positions tab to manage");
       }
     } catch (err: any) {
       console.error("Action failed:", err);
-      setTxError(err?.message || "Transaction failed");
+      setTxError(err?.message?.slice(0, 150) || "Transaction failed");
     } finally {
       setLoading(false);
       setStepLabel("");
@@ -570,12 +558,12 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
     <div className="flex flex-col gap-3">
       {/* Back + title */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-        <button onClick={onBack} className="font-family-ThaleahFat text-peach-300 cursor-pointer bg-transparent text-sm">
+        <button onClick={onBack} className="font-family-ThaleahFat text-peach-300 cursor-pointer bg-transparent text-base">
           ← BACK
         </button>
-        <TokenPair t0={pool.token0} t1={pool.token1} size={28} />
+        <TokenPair t0={pool.token0} t1={pool.token1} size={36} />
         <div className="min-w-0 flex-1">
-          <h2 className="font-family-ThaleahFat truncate text-xl tracking-wider text-white sm:text-2xl">{pool.name}</h2>
+          <h2 className="font-family-ThaleahFat truncate text-2xl tracking-wider text-white sm:text-3xl">{pool.name}</h2>
           <div className="mt-0.5 flex flex-wrap gap-1">
             <Badge chain={pool.token0.sourceChain} />
             <Badge chain="Push Chain" />
@@ -586,69 +574,54 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-5 sm:gap-2">
+      {/* Pool Stats */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
           { l: "TVL", v: `$${fmt(pool.tvl)}`, c: "text-peach-500" },
-          { l: "24H VOL", v: `$${fmt(pool.vol24h)}`, c: "text-[#6DBB3E]" },
-          { l: "SUPPLY APY", v: `${pool.apy}%`, c: "text-[#6DBB3E]" },
-          { l: "BORROW APR", v: `${pool.apr}%`, c: "text-peach-500" },
+          { l: "24H VOLUME", v: `$${fmt(pool.vol24h)}`, c: "text-[#6DBB3E]" },
+          { l: "FEE APY", v: `${pool.feeApy}%`, c: "text-[#6DBB3E]" },
           { l: "LIQUIDITY", v: BigInt(pool.liquidity) > 0n ? "ACTIVE" : "EMPTY", c: BigInt(pool.liquidity) > 0n ? "text-[#6DBB3E]" : "text-red-400" },
         ].map((s, i) => (
-          <div key={i} className="relative rounded px-2 py-2 text-center">
+          <div key={i} className="relative rounded px-3 py-3 text-center">
             <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
               className="absolute inset-0 z-[-1] h-full w-full rounded" />
             <div className="font-family-ThaleahFat text-sm tracking-wider text-gray-500">{s.l}</div>
-            <div className={`font-family-ThaleahFat text-base ${s.c}`}>{s.v}</div>
+            <div className={`font-family-ThaleahFat text-xl ${s.c}`}>{s.v}</div>
           </div>
         ))}
       </div>
 
-      {/* Token composition */}
+      {/* Token Reserves in Pool */}
       <div className="grid grid-cols-2 gap-2">
         {[
           { tok: pool.token0, reserve: pool.reserve0 },
           { tok: pool.token1, reserve: pool.reserve1 },
         ].map((item, i) => (
-          <div key={i} className="relative rounded px-3 py-2.5">
+          <div key={i} className="relative rounded px-3 py-3">
             <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
               className="absolute inset-0 z-[-1] h-full w-full rounded" />
             <div className="flex items-center gap-2">
-              <TokenIcon token={item.tok} size={20} />
-              <span className="font-family-ThaleahFat text-sm text-white">{item.tok.symbol}</span>
+              <TokenIcon token={item.tok} size={24} />
+              <span className="font-family-ThaleahFat text-base text-white">{item.tok.symbol}</span>
               <Badge chain={item.tok.sourceChain} />
             </div>
-            <div className="font-family-ThaleahFat mt-1 text-sm text-gray-500">LOCKED IN POOL</div>
-            <div className="font-family-ThaleahFat text-peach-300 text-lg">
+            <div className="font-family-ThaleahFat mt-1 text-sm text-gray-500">POOLED AMOUNT</div>
+            <div className="font-family-ThaleahFat text-peach-300 text-xl">
               {item.reserve}
             </div>
           </div>
         ))}
       </div>
 
-      {/* Utilization bar */}
-      <div className="relative rounded px-3 py-2.5">
+      {/* Price info */}
+      <div className="relative rounded px-3 py-3">
         <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
           className="absolute inset-0 z-[-1] h-full w-full rounded" />
-        <div className="mb-1.5 flex justify-between">
-          <span className="font-family-ThaleahFat text-base tracking-wider text-gray-500">POOL UTILIZATION</span>
-          <span className={`font-family-ThaleahFat text-base ${pool.util > 80 ? "text-red-400" : pool.util > 60 ? "text-peach-500" : "text-[#6DBB3E]"}`}>
-            {pool.util}%
+        <div className="flex justify-between">
+          <span className="font-family-ThaleahFat text-base text-gray-500">PRICE</span>
+          <span className="font-family-ThaleahFat text-peach-300 text-base">
+            1 {pool.token0.symbol} = {Number.isFinite(pool.price) ? (pool.price > 1000 ? fmt(pool.price) : pool.price < 0.001 ? pool.price.toExponential(2) : pool.price.toFixed(4)) : "N/A"} {pool.token1.symbol}
           </span>
-        </div>
-        <div className="border-ground-button-border h-2.5 overflow-hidden rounded border bg-[#281a12]">
-          <div
-            className="h-full rounded"
-            style={{
-              width: `${pool.util}%`,
-              background: `linear-gradient(90deg, #6DBB3E, ${pool.util > 60 ? "#feae34" : "#6DBB3E"}, ${pool.util > 80 ? "#ef4444" : "#feae34"})`,
-            }}
-          />
-        </div>
-        <div className="font-family-ThaleahFat mt-1 flex justify-between text-sm">
-          <span className="text-[#6DBB3E]">0% SAFE</span>
-          <span className="text-peach-500">OPTIMAL</span>
-          <span className="text-red-400">100% MAX</span>
         </div>
       </div>
 
@@ -662,11 +635,11 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
         </button>
       ) : txDone ? (
         <div className="py-4 text-center">
-          <p className="font-family-ThaleahFat text-xl text-[#6DBB3E]">TRANSACTION CONFIRMED ✓</p>
-          <p className="font-family-ThaleahFat mt-1 text-sm text-gray-400">+25 XP EARNED</p>
+          <p className="font-family-ThaleahFat text-2xl text-[#6DBB3E]">LIQUIDITY ADDED ✓</p>
+          <p className="font-family-ThaleahFat mt-1 text-base text-gray-400">+25 XP EARNED</p>
           {txHash && (
             <a href={`https://donut.push.network/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
-              className="font-family-ThaleahFat text-peach-300 mt-1 block text-xs underline">
+              className="font-family-ThaleahFat text-peach-300 mt-1 block text-base underline">
               VIEW ON EXPLORER →
             </a>
           )}
@@ -674,22 +647,22 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
       ) : txError ? (
         <div className="py-4 text-center">
           <p className="font-family-ThaleahFat text-xl text-red-400">TRANSACTION FAILED ✗</p>
-          <p className="font-family-ThaleahFat mt-1 text-xs text-gray-400">{txError.slice(0, 120)}</p>
-          <button onClick={() => setTxError(null)} className="font-family-ThaleahFat text-peach-300 mt-2 cursor-pointer text-sm underline">TRY AGAIN</button>
+          <p className="font-family-ThaleahFat mt-1 break-words text-sm text-gray-400">{txError.slice(0, 150)}</p>
+          <button onClick={() => setTxError(null)} className="font-family-ThaleahFat text-peach-300 mt-2 cursor-pointer text-base underline">TRY AGAIN</button>
         </div>
       ) : actionTab === null ? (
         <div className="flex gap-2">
           <button
-            onClick={() => setActionTab("supply")}
+            onClick={() => setActionTab("add")}
             className="font-family-ThaleahFat flex-1 cursor-pointer rounded-lg bg-[#6DBB3E] px-6 py-3 text-xl tracking-wider text-white shadow-[0px_-4px_0px_0px_#4A8B29_inset,0px_4px_0px_0px_rgba(255,255,255,0.3)_inset] transition-all hover:scale-[1.01]"
           >
-            SUPPLY {pool.token0.symbol}
+            + ADD LIQUIDITY
           </button>
           <button
-            onClick={() => setActionTab("borrow")}
+            onClick={() => setActionTab("remove")}
             className="font-family-ThaleahFat bg-peach-500 flex-1 cursor-pointer rounded-lg px-6 py-3 text-xl tracking-wider text-black shadow-[0px_-4px_0px_0px_#C97E00_inset,0px_4px_0px_0px_rgba(255,212,122,0.6)_inset] transition-all hover:scale-[1.01]"
           >
-            BORROW {pool.token0.symbol}
+            − REMOVE LIQUIDITY
           </button>
         </div>
       ) : (
@@ -698,9 +671,9 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
             className="absolute inset-0 z-[-1] h-full w-full rounded-lg" />
           <div className="mb-3 flex items-center justify-between">
             <span className="font-family-ThaleahFat text-xl tracking-wider text-white">
-              {actionTab === "supply" ? "SUPPLY" : "BORROW"} {pool.token0.symbol}
+              {actionTab === "add" ? "+ ADD" : "− REMOVE"} LIQUIDITY
             </span>
-            <button onClick={() => setActionTab(null)} className="font-family-ThaleahFat text-peach-300 cursor-pointer text-sm">✕</button>
+            <button onClick={() => setActionTab(null)} className="font-family-ThaleahFat text-peach-300 cursor-pointer text-base">✕</button>
           </div>
 
           {/* Amount input */}
@@ -708,11 +681,11 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
             <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
               className="absolute inset-0 z-[-1] h-full w-full rounded" />
             <div className="mb-1 flex justify-between">
-              <span className="font-family-ThaleahFat text-base text-gray-500">AMOUNT</span>
-              <span className="font-family-ThaleahFat text-base text-gray-500">BAL: 0.00 {pool.token0.symbol}</span>
+              <span className="font-family-ThaleahFat text-base text-gray-500">{pool.token0.symbol} AMOUNT</span>
+              <span className="font-family-ThaleahFat text-base text-gray-500">BAL: 0.00</span>
             </div>
             <div className="flex items-center gap-2">
-              <TokenIcon token={pool.token0} size={24} />
+              <TokenIcon token={pool.token0} size={28} />
               <input
                 type="text"
                 value={amount}
@@ -721,57 +694,54 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
                 className="font-family-ThaleahFat w-full flex-1 bg-transparent text-2xl tracking-wider text-white placeholder:text-gray-600 focus:outline-none"
               />
               {["25%", "50%", "MAX"].map(p => (
-                <button key={p} className="font-family-ThaleahFat text-peach-500 border-ground-button-border bg-ground-button-border cursor-pointer rounded-sm border px-1.5 py-px text-sm">
+                <button key={p} className="font-family-ThaleahFat text-peach-500 border-ground-button-border bg-ground-button-border cursor-pointer rounded-sm border px-2 py-1 text-sm">
                   {p}
                 </button>
               ))}
             </div>
           </div>
 
+          {/* Estimated token1 */}
+          {actionTab === "add" && pool.price > 0 && amount && (
+            <div className="relative mb-3 rounded px-3 py-2.5">
+              <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
+                className="absolute inset-0 z-[-1] h-full w-full rounded" />
+              <div className="mb-1 flex justify-between">
+                <span className="font-family-ThaleahFat text-base text-gray-500">{pool.token1.symbol} (ESTIMATED)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <TokenIcon token={pool.token1} size={28} />
+                <span className="font-family-ThaleahFat text-2xl text-gray-300">
+                  {(Number(amount) * pool.price).toFixed(6)}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Info rows */}
           <div className="relative mb-3 rounded px-3 py-2">
             <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
               className="absolute inset-0 z-[-1] h-full w-full rounded" />
             {[
-              [actionTab === "supply" ? "SUPPLY APY" : "BORROW APR", `${actionTab === "supply" ? pool.apy : pool.apr}%`, actionTab === "supply" ? "text-[#6DBB3E]" : "text-peach-500"],
-              ["PRICE", `1 ${pool.token0.symbol} = ${Number.isFinite(pool.price) ? (pool.price > 1000 ? fmt(pool.price) : pool.price < 0.001 ? pool.price.toExponential(2) : pool.price.toFixed(4)) : "N/A"} ${pool.token1.symbol}`, "text-peach-300"],
+              ["FEE APY", `${pool.feeApy}%`, "text-[#6DBB3E]"],
+              ["FEE TIER", `${(pool.fee / 10000).toFixed(2)}%`, "text-peach-300"],
               ["POOL TVL", `$${fmt(pool.tvl)}`, "text-peach-300"],
               ["SOURCE CHAIN", pool.token0.sourceChain, ""],
               ["ON-CHAIN", pool.active ? "LIVE ✓" : "NO LIQUIDITY", pool.active ? "text-[#6DBB3E]" : "text-red-400"],
             ].map(([k, v, c]) => (
               <div key={k} className="flex justify-between py-0.5">
-                <span className="font-family-ThaleahFat text-xs text-gray-500">{k}</span>
-                <span className={`font-family-ThaleahFat text-xs ${c || "text-peach-300"}`}>{v}</span>
+                <span className="font-family-ThaleahFat text-sm text-gray-500">{k}</span>
+                <span className={`font-family-ThaleahFat text-sm ${c || "text-peach-300"}`}>{v}</span>
               </div>
             ))}
           </div>
 
-          {/* Health factor (borrow only) */}
-          {actionTab === "borrow" && (
-            <div className="relative mb-3 rounded px-3 py-2">
-              <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
-                className="absolute inset-0 z-[-1] h-full w-full rounded" />
-              <div className="mb-1 flex justify-between">
-                <span className="font-family-ThaleahFat text-base text-gray-500">HEALTH FACTOR</span>
-                <span className="font-family-ThaleahFat text-xs text-[#6DBB3E]">∞ → 2.45</span>
-              </div>
-              <div className="border-ground-button-border h-2 overflow-hidden rounded border bg-[#281a12]">
-                <div className="h-full w-[82%] rounded" style={{ background: "linear-gradient(90deg, #ef4444, #feae34, #6DBB3E)" }} />
-              </div>
-              <p className="font-family-ThaleahFat mt-1 text-sm text-gray-500">LIQUIDATION IF HEALTH FACTOR &lt; 1.0</p>
-            </div>
-          )}
-
           <button
             onClick={handleAction}
             disabled={loading || !amount}
-            className={`font-family-ThaleahFat w-full cursor-pointer rounded-lg px-6 py-3 text-xl tracking-wider transition-all hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50 ${
-              actionTab === "supply"
-                ? "bg-[#6DBB3E] text-white shadow-[0px_-4px_0px_0px_#4A8B29_inset,0px_4px_0px_0px_rgba(255,255,255,0.3)_inset]"
-                : "bg-peach-500 text-black shadow-[0px_-4px_0px_0px_#C97E00_inset,0px_4px_0px_0px_rgba(255,212,122,0.6)_inset]"
-            }`}
+            className="font-family-ThaleahFat w-full cursor-pointer rounded-lg bg-[#6DBB3E] px-6 py-3 text-xl tracking-wider text-white shadow-[0px_-4px_0px_0px_#4A8B29_inset,0px_4px_0px_0px_rgba(255,255,255,0.3)_inset] transition-all hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? (stepLabel || "MINING...") : `${actionTab === "supply" ? "SUPPLY" : "BORROW"} ${pool.token0.symbol}`}
+            {loading ? (stepLabel || "PROCESSING...") : `${actionTab === "add" ? "ADD" : "REMOVE"} LIQUIDITY`}
           </button>
         </div>
       )}
