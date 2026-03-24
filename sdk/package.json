@@ -1,0 +1,24 @@
+{
+  "name": "@moleswap/sdk",
+  "version": "1.0.0",
+  "description": "TypeScript SDK for MoleSwap DEX on PushChain",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts --format cjs,esm --dts --watch"
+  },
+  "keywords": ["moleswap", "dex", "pushchain", "swap", "defi", "amm", "uniswap-v3"],
+  "author": "MoleSwap",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/penguinpecker/moleswap"
+  },
+  "devDependencies": {
+    "tsup": "^8.0.0",
+    "typescript": "^5.0.0"
+  }
+}
