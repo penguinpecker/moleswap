@@ -132,6 +132,7 @@ export async function POST(req: NextRequest) {
         tokenOut: actualOut,
         fee: poolFee,
         recipient,
+        deadline: txDeadline,
         amountIn: amountInBig,
         amountOutMinimum: computedMinOut,
         sqrtPriceLimitX96: 0,

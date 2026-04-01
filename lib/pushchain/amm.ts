@@ -398,6 +398,7 @@ export async function executeSwap(params: {
       tokenOut: actualOut,
       fee,
       recipient: params.recipient,
+      deadline,
       amountIn,
       amountOutMinimum: amountOutMin,
       sqrtPriceLimitX96: 0,
