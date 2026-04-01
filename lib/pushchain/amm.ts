@@ -719,9 +719,10 @@ export async function removeLiquidity(params: RemoveLiquidityParams): Promise<{ 
 
     let txHash = "";
     if (params.pushChainClient?.universal?.sendTransaction) {
-      txHash = await params.pushChainClient.universal.sendTransaction({
+      const decreaseResult = await params.pushChainClient.universal.sendTransaction({
         to: CONTRACTS.POSITION_MANAGER, value: 0n, data: decreaseCalldata,
       });
+      txHash = extractHash(decreaseResult);
       await new Promise(r => setTimeout(r, 3000));
     } else if (typeof window !== "undefined" && (window as any).ethereum) {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
@@ -744,10 +745,10 @@ export async function removeLiquidity(params: RemoveLiquidityParams): Promise<{ 
     }]);
 
     if (params.pushChainClient?.universal?.sendTransaction) {
-      const collectHash = await params.pushChainClient.universal.sendTransaction({
+      const collectResult = await params.pushChainClient.universal.sendTransaction({
         to: CONTRACTS.POSITION_MANAGER, value: 0n, data: collectCalldata,
       });
-      txHash = collectHash || txHash;
+      txHash = extractHash(collectResult) || txHash;
       await new Promise(r => setTimeout(r, 3000));
     } else if (typeof window !== "undefined" && (window as any).ethereum) {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
@@ -851,9 +852,10 @@ export async function collectFees(params: {
 
     let txHash = "";
     if (params.pushChainClient?.universal?.sendTransaction) {
-      txHash = await params.pushChainClient.universal.sendTransaction({
+      const collectResult = await params.pushChainClient.universal.sendTransaction({
         to: CONTRACTS.POSITION_MANAGER, value: 0n, data: calldata,
       });
+      txHash = extractHash(collectResult);
     } else if (typeof window !== "undefined" && (window as any).ethereum) {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
       const signer = await provider.getSigner();

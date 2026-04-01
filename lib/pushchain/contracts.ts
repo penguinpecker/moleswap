@@ -38,7 +38,7 @@ export const TOKENS: TokenInfo[] = [
   { address: "0x387b9C8Db60E74999aAAC5A2b7825b400F12d68E", symbol: "USDC.eth", name: "USD Coin (Ethereum)", decimals: 6, sourceChain: "Ethereum", logoURI: "https://assets.coingecko.com/coins/images/6319/small/usdc.png" },
 
   // Solana Devnet
-  { address: "0x5D525Df2bD99a6e7ec58b76aF2fd95F39874EBed", symbol: "pSOL", name: "pSOL", decimals: 18, sourceChain: "Solana", logoURI: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
+  { address: "0x5D525Df2bD99a6e7ec58b76aF2fd95F39874EBed", symbol: "pSOL", name: "pSOL", decimals: 9, sourceChain: "Solana", logoURI: "https://assets.coingecko.com/coins/images/4128/small/solana.png" },
   { address: "0x04B8F634ABC7C879763F623e0f0550a4b5c4426F", symbol: "USDC.sol", name: "USD Coin (Solana)", decimals: 6, sourceChain: "Solana", logoURI: "https://assets.coingecko.com/coins/images/6319/small/usdc.png" },
   { address: "0x4f1A3D22d170a2F4Bddb37845a962322e24f4e34", symbol: "USDT.sol", name: "Tether (Solana)", decimals: 6, sourceChain: "Solana", logoURI: "https://assets.coingecko.com/coins/images/325/small/Tether.png" },
   { address: "0x5861f56A556c990358cc9cccd8B5baa3767982A8", symbol: "DAI.sol", name: "DAI (Solana)", decimals: 18, sourceChain: "Solana", logoURI: "https://assets.coingecko.com/coins/images/9956/small/Badge_Dai.png" },
