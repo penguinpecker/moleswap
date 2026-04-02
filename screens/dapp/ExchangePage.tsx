@@ -6,6 +6,8 @@ import Image from "next/image";
 import { getChains, getTokensForChain, type RelayChain } from "@/lib/relay/api";
 import { relayClient } from "@/lib/relay/client";
 import { usePushWallet } from "@/lib/pushchain/provider";
+import { getTokenByAddress } from "@/lib/pushchain/contracts";
+import { getOrCreateUser, getUserSwapHistory } from "@/lib/supabase/api";
 import { getTokenBalance } from "@/lib/wallet/walletClient";
 import { useRouter } from "next/navigation";
 import type { Address } from "viem";
@@ -111,7 +113,47 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     }
   }, [pushWallet.isConnected, pushWallet.address]);
 
-  // ----- Check for existing wallet connection on mount -----
+  // Load persistent swap history from Supabase
+  useEffect(() => {
+    if (!pushWallet.isConnected || !pushWallet.address) return;
+    (async () => {
+      try {
+        const user = await getOrCreateUser(pushWallet.address!);
+        if (!user?.id) return;
+        const history = await getUserSwapHistory(user.id, 50);
+        if (!history || history.length === 0) return;
+        const mapped = history.map((s: any) => {
+          const fromInfo = getTokenByAddress(s.from_token);
+          const toInfo = getTokenByAddress(s.to_token);
+          return {
+            id: s.id,
+            fromSymbol: fromInfo?.symbol || s.from_token?.slice(0, 8) || "?",
+            toSymbol: toInfo?.symbol || s.to_token?.slice(0, 8) || "?",
+            fromAmount: s.from_amount || "0",
+            toAmount: s.to_amount || "0",
+            txHash: s.tx_hash || "",
+            timestamp: s.created_at,
+            fromLogo: fromInfo?.logoURI || "/placeholder-logo.png",
+            toLogo: toInfo?.logoURI || "/placeholder-logo.png",
+          };
+        });
+        setSwapHistory((prev: any[]) => {
+          const existing = new Set(prev.map((s: any) => s.txHash).filter(Boolean));
+          const merged = [...prev];
+          for (const item of mapped) {
+            if (item.txHash && !existing.has(item.txHash)) {
+              merged.push(item);
+              existing.add(item.txHash);
+            }
+          }
+          merged.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          return merged;
+        });
+      } catch (e) {
+        console.warn("[MoleSwap] Failed to load swap history from DB:", e);
+      }
+    })();
+  }, [pushWallet.isConnected, pushWallet.address]);
   useEffect(() => {
     const checkWalletConnection = async () => {
       if (typeof window === "undefined") return;
@@ -1299,10 +1341,6 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
               <div className="absolute right-6 flex items-center gap-1.5">
                 <button
                   onClick={() => {
-                    try {
-                      const stored = window.sessionStorage?.getItem("moleswap_history");
-                      setSwapHistory(stored ? JSON.parse(stored) : []);
-                    } catch {}
                     setShowHistory(prev => !prev);
                   }}
                   className="border-ground-button-border bg-ground-button cursor-pointer justify-center rounded border-2 p-1 text-yellow-100 transition-all hover:scale-105"
