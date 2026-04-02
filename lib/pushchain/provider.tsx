@@ -7,10 +7,8 @@ import {
   PushUI,
 } from "@pushchain/ui-kit";
 
-// Re-export hooks for convenience
 export { usePushWalletContext, usePushChainClient, PushUI };
 
-// Convenience hook wrapping the official hooks
 export function usePushWallet() {
   const walletCtx = usePushWalletContext();
   const { pushChainClient } = usePushChainClient();
@@ -27,6 +25,7 @@ export function usePushWallet() {
     connectionStatus: walletCtx?.connectionStatus,
     pushChainClient,
     universalAccount: walletCtx?.universalAccount,
+    originChain: walletCtx?.universalAccount?.chain || null,
     connect: () => walletCtx?.handleConnectToPushWallet?.(),
     disconnect: () => walletCtx?.handleUserLogOutEvent?.(),
   };
@@ -37,16 +36,35 @@ interface Props {
   network?: "testnet" | "mainnet";
 }
 
+const APP_METADATA = {
+  logoUrl: "/moleswap-logo.png",
+  title: "MoleSwap",
+  description: "Pixel-art DEX on PushChain. Swap, earn XP, climb the leaderboard.",
+};
+
 export function PushChainWalletProvider({ children, network = "testnet" }: Props) {
   const walletConfig = {
     network:
       network === "mainnet"
         ? PushUI.CONSTANTS.PUSH_NETWORK.MAINNET
         : PushUI.CONSTANTS.PUSH_NETWORK.TESTNET,
+    login: {
+      email: true,
+      google: true,
+      wallet: {
+        enabled: true,
+      },
+      appPreview: true,
+    },
+    modal: {
+      loginLayout: PushUI.CONSTANTS.LOGIN.LAYOUT.SPLIT,
+      connectedLayout: PushUI.CONSTANTS.CONNECTED.LAYOUT.HOVER,
+      appPreview: true,
+    },
   };
 
   return (
-    <PushUniversalWalletProvider config={walletConfig}>
+    <PushUniversalWalletProvider config={walletConfig} app={APP_METADATA}>
       {children}
     </PushUniversalWalletProvider>
   );

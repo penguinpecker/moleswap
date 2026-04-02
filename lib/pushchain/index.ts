@@ -24,7 +24,7 @@ export {
   AMM_FACTORY,
 } from "./amm";
 
-export type { PushChainToken, Pool, SwapQuote, AddLiquidityParams, RemoveLiquidityParams, LiquidityPosition } from "./amm";
+export type { PushChainToken, Pool, SwapQuote, AddLiquidityParams, RemoveLiquidityParams, LiquidityPosition, UniversalTxOptions } from "./amm";
 
 export {
   CONTRACTS,
