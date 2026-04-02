@@ -1,0 +1,13 @@
+diff --git a/src/lib/helpers/txnAuthGuard.js b/src/lib/helpers/txnAuthGuard.js
+index 1234567..abcdefg 100644
+--- a/src/lib/helpers/txnAuthGuard.js
++++ b/src/lib/helpers/txnAuthGuard.js
+@@ -14,7 +14,7 @@ function createGuardedPushChain(baseClient, handleExternalWalletConnection, requ
+                 if (!walletData) {
+                     return;
+                 }
+-                if (walletData.wallet.providerName) {
++                if (walletData?.wallet?.providerName) {
+                     await handleExternalWalletConnection({
+                         chain: walletData.wallet.chainType,
+                         provider: walletData.wallet.providerName
