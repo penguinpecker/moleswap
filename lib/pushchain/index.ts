@@ -32,6 +32,7 @@ export {
   POOLS,
   getTokenByAddress,
   getTokenBySymbol,
+  getSwappableTokens,
   findPool,
   POSITION_MANAGER_ABI,
   WPC_ABI,

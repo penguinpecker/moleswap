@@ -48,7 +48,7 @@ export async function getChains(): Promise<RelayChain[]> {
         address: "0x0000000000000000000000000000000000000000",
         decimals: 18,
       },
-      featuredTokens: TOKENS.map((t) => ({
+      featuredTokens: TOKENS.filter(t => t.swappable !== false).map((t) => ({
         id: t.address,
         symbol: t.symbol,
         name: t.name,

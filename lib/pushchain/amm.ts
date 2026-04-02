@@ -7,14 +7,14 @@ import {
   CONTRACTS, TOKENS, POOLS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
   QUOTER_V2_ABI, SWAP_ROUTER_ABI, ERC20_ABI, POOL_ABI,
   POSITION_MANAGER_ABI, WPC_ABI, TICK_SPACINGS, MIN_TICK, MAX_TICK,
-  getTokenByAddress, findPool,
+  getTokenByAddress, findPool, getSwappableTokens,
   type TokenInfo, type PoolInfo,
 } from "./contracts";
 
 // Re-export everything the app needs
 export {
   CONTRACTS, TOKENS, POOLS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
-  getTokenByAddress, findPool,
+  getTokenByAddress, findPool, getSwappableTokens,
   type TokenInfo, type PoolInfo,
 };
 
@@ -56,6 +56,8 @@ export async function getSwapQuote(params: {
     const tokenInInfo = getTokenByAddress(params.tokenIn);
     const tokenOutInfo = getTokenByAddress(params.tokenOut);
     if (!tokenInInfo || !tokenOutInfo) return null;
+
+    if (tokenInInfo.swappable === false || tokenOutInfo.swappable === false) return null;
 
     // amountIn is already in WEI from ExchangePage
     const amountInWei = BigInt(params.amountIn || "0");
