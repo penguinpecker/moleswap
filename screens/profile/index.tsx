@@ -13,7 +13,7 @@ const ProfilePage = () => {
     <div className="relative flex min-h-screen w-full flex-col items-center gap-2 sm:gap-4">
       <BackgroundImage />
 
-      <div className="absolute top-0 left-1/2 z-20 flex h-20 w-full -translate-x-1/2 transform items-center justify-center gap-4 overflow-visible sm:h-40 sm:gap-16">
+      <div className="absolute top-0 left-1/2 z-20 flex h-14 w-full -translate-x-1/2 transform items-center justify-center gap-4 overflow-visible sm:h-40 sm:gap-16">
         {/* Left Cloud */}
         <Image
           src="/profile/Chain.png"
@@ -38,14 +38,14 @@ const ProfilePage = () => {
           alt="Profile Board"
           width={44}
           height={44}
-          className="animate-cloud-left absolute -bottom-1/2 left-1/2 w-[70%] -translate-x-1/2 transform sm:w-fit"
+          className="animate-cloud-left absolute -bottom-1/2 left-1/2 w-[50%] -translate-x-1/2 transform sm:w-fit"
         />
       </div>
 
       <div className="relative z-50 mx-auto mt-2 block w-full px-2 sm:mt-4 sm:px-4">
         <NavBar />
       </div>
-      <div className="relative z-20 mt-12 mb-4 w-full px-2 sm:mx-auto sm:mt-32 sm:mb-16 sm:w-auto sm:px-0">
+      <div className="relative z-20 mt-2 mb-4 w-full px-3 sm:mx-auto sm:mt-32 sm:mb-16 sm:w-auto sm:px-0">
         <ProfileCard />
       </div>
     </div>
@@ -87,7 +87,7 @@ const BackgroundImage = () => {
         alt="Profile"
         width={200}
         height={200}
-        className="fixed bottom-[40vh] z-10 h-full max-h-[30vh] w-full object-cover sm:bottom-[44vh] sm:max-h-[35vh]"
+        className="fixed bottom-[48vh] z-10 h-full max-h-[20vh] w-full object-cover sm:bottom-[44vh] sm:max-h-[35vh]"
       />
       {/*   BRICK */}
       <Image
@@ -95,7 +95,7 @@ const BackgroundImage = () => {
         alt="Profile"
         width={200}
         height={200}
-        className="fixed bottom-0 h-full max-h-[55vh] w-full object-cover sm:max-h-[57vh]"
+        className="fixed bottom-0 h-full max-h-[60vh] w-full object-cover sm:max-h-[57vh]"
       />
     </>
   );
@@ -129,13 +129,13 @@ const ProfileCard = () => {
   const displayBestRank = rank?.best_rank ? `#${rank.best_rank}` : (profile?.best_rank ? `#${profile.best_rank}` : "—");
 
   return (
-    <div className="relative flex w-full flex-col items-center p-3 pt-8 sm:w-[500px] sm:p-12 sm:pt-28">
+    <div className="relative flex w-full flex-col items-center p-2 pt-4 sm:w-[500px] sm:p-12 sm:pt-28">
       <Image
         src="/profile/frame-bg.svg"
         alt="Frame"
         width={88}
         height={88}
-        className="absolute inset-0 z-0 h-full w-full max-sm:hidden"
+        className="absolute inset-0 z-0 h-full w-full"
       />
       <Image
         src="/profile/mole-left-tillted.svg"
@@ -210,7 +210,7 @@ const ProfileCard = () => {
           <div className="text-peach-300 font-family-ThaleahFat mb-1 text-left text-base sm:text-3xl">
             LEADERBOARD RANK:
           </div>
-          <div className="relative flex w-full flex-col items-stretch gap-2 rounded-lg sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="relative grid w-full grid-cols-2 gap-2 rounded-lg sm:gap-4">
             <div className="relative w-full p-2 sm:p-4">
               <Image
                 src="/profile/wooden-board.png"
@@ -247,7 +247,7 @@ const ProfileCard = () => {
         <div className="flex w-full items-center gap-2 sm:gap-4">
           <button
             type="button"
-            className="group relative flex h-6 w-6 cursor-pointer items-center justify-center transition-all hover:scale-105 sm:h-10 sm:w-10"
+            className="group relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border-2 border-[#3A1F0E] bg-black/20 transition-all hover:scale-105 sm:h-10 sm:w-10"
           >
             <Image
               src="/profile/footer-image.svg"
@@ -261,7 +261,7 @@ const ProfileCard = () => {
             href="https://twitter.com/moleswap"
             target="_blank"
             rel="noopener noreferrer"
-            className="group relative ml-auto flex h-6 w-6 items-center justify-center transition-all hover:scale-105 sm:h-10 sm:w-10"
+            className="group relative ml-auto flex h-9 w-9 items-center justify-center rounded-lg border-2 border-[#3A1F0E] bg-black/20 transition-all hover:scale-105 sm:h-10 sm:w-10"
           >
             <Image
               src="/profile/footer-image.svg"
