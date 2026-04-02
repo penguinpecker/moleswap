@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { FaXTwitter } from "react-icons/fa6";
 import Lottie from "lottie-react";
@@ -19,7 +19,6 @@ export const NavBar = () => {
     }`;
 
   const toggleMenu = () => setIsOpen(!isOpen);
-  const router = useRouter();
   return (
     <div className="relative flex w-full items-center justify-center">
       {/* Brown pixel bar */}
@@ -58,22 +57,6 @@ export const NavBar = () => {
               POOLS
             </Link>
           </div>
-
-          {/* Center avatar */}
-          <span className="relative w-20 transition-all">
-            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-              <div className="border-ground h-16 w-16 overflow-hidden rounded-full border-4 bg-white shadow-[4px_4px_0_#000]">
-                <Image
-                  src="/profile/profile-logo.png"
-                  alt="Avatar"
-                  width={80}
-                  height={80}
-                  className="h-full w-full object-cover"
-                // onClick={() => router.push("/profile")}
-                />
-              </div>
-            </div>
-          </span>
 
           {/* Right menu */}
           <div className="flex gap-4 md:gap-12">

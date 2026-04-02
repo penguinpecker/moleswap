@@ -10,6 +10,14 @@ export const metadata: Metadata = {
   title: "MoleSwap - Decentralized Swap Game",
   description:
     "A pixel-art themed decentralized application for token swapping with gamification elements. Powered by PushChain.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/favicon-32x32.png", sizes: "32x32", type: "image/png" },
+      { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
+    ],
+    apple: "/apple-touch-icon.png",
+  },
   openGraph: {
     title: "MoleSwap - Decentralized Swap Game",
     description: "Swap tokens, earn XP, climb the leaderboard. Powered by PushChain universal blockchain.",
