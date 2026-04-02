@@ -458,6 +458,43 @@ const PoolsContent = () => {
 };
 
 // ═══ POSITIONS TAB ═══
+
+// V3 math: calculate token amounts from liquidity + tick range + current tick
+function getTokenAmounts(
+  liquidity: bigint, tickLower: number, tickUpper: number, currentTick: number,
+  decimals0: number, decimals1: number
+): { amount0: number; amount1: number } {
+  if (liquidity === 0n) return { amount0: 0, amount1: 0 };
+
+  const sqrtPriceLower = Math.sqrt(1.0001 ** tickLower);
+  const sqrtPriceUpper = Math.sqrt(1.0001 ** tickUpper);
+  const sqrtPriceCurrent = Math.sqrt(1.0001 ** currentTick);
+  const liq = Number(liquidity);
+
+  let amount0 = 0, amount1 = 0;
+  if (currentTick < tickLower) {
+    amount0 = liq * (1 / sqrtPriceLower - 1 / sqrtPriceUpper);
+  } else if (currentTick > tickUpper) {
+    amount1 = liq * (sqrtPriceUpper - sqrtPriceLower);
+  } else {
+    amount0 = liq * (1 / sqrtPriceCurrent - 1 / sqrtPriceUpper);
+    amount1 = liq * (sqrtPriceCurrent - sqrtPriceLower);
+  }
+
+  return {
+    amount0: amount0 / (10 ** decimals0),
+    amount1: amount1 / (10 ** decimals1),
+  };
+}
+
+interface EnrichedPosition extends LiquidityPosition {
+  amount0: number;
+  amount1: number;
+  currentTick: number;
+  feeTier: string;
+  poolAddress: string;
+}
+
 const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainClient, address, onRefresh, onGoToMarkets }: {
   positions: LiquidityPosition[]; loading: boolean; isConnected: boolean; walletCtx: any; pushChainClient: any; address: string | null;
   onRefresh: () => void; onGoToMarkets: () => void;
@@ -465,6 +502,57 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
   const [removing, setRemoving] = useState<number | null>(null);
   const [collecting, setCollecting] = useState<number | null>(null);
   const [txMsg, setTxMsg] = useState<string | null>(null);
+  const [enriched, setEnriched] = useState<EnrichedPosition[]>([]);
+  const [enriching, setEnriching] = useState(false);
+
+  useEffect(() => {
+    if (positions.length === 0) { setEnriched([]); return; }
+    let cancelled = false;
+    (async () => {
+      setEnriching(true);
+      try {
+        const provider = getProvider();
+        const enrichedList: EnrichedPosition[] = [];
+
+        for (const pos of positions) {
+          const t0 = pos.token0Info || getTokenByAddress(pos.token0);
+          const t1 = pos.token1Info || getTokenByAddress(pos.token1);
+          const poolInfo = pos.poolInfo || findPool(pos.token0, pos.token1);
+
+          let currentTick = 0;
+          let poolAddress = poolInfo?.address || "";
+          if (poolAddress) {
+            try {
+              const poolContract = new ethers.Contract(poolAddress, POOL_ABI, provider);
+              const slot0 = await poolContract.slot0();
+              currentTick = Number(slot0[1]);
+            } catch {}
+          }
+
+          const { amount0, amount1 } = getTokenAmounts(
+            BigInt(pos.liquidity),
+            pos.tickLower, pos.tickUpper, currentTick,
+            t0?.decimals || 18, t1?.decimals || 18
+          );
+
+          enrichedList.push({
+            ...pos,
+            amount0,
+            amount1,
+            currentTick,
+            feeTier: `${(pos.fee / 10000).toFixed(2)}%`,
+            poolAddress,
+          });
+        }
+        if (!cancelled) setEnriched(enrichedList);
+      } catch (err) {
+        console.error("Failed to enrich positions:", err);
+      } finally {
+        if (!cancelled) setEnriching(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [positions]);
 
   const handleRemove = async (pos: LiquidityPosition) => {
     if (!address || removing) return;
@@ -526,11 +614,12 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
     );
   }
 
-  if (loading) {
+  if (loading || enriching) {
     return (
       <div className="py-12 text-center">
         <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-yellow-100 border-t-transparent" />
         <p className="font-family-ThaleahFat text-peach-300 mt-4 text-xl">LOADING POSITIONS...</p>
+        <p className="font-family-ThaleahFat mt-1 text-xs text-gray-500">Reading on-chain position data</p>
       </div>
     );
   }
@@ -553,6 +642,8 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
     );
   }
 
+  const displayPositions = enriched.length > 0 ? enriched : positions;
+
   return (
     <div className="flex flex-col gap-3">
       {txMsg && (
@@ -564,51 +655,113 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
 
       <div className="flex items-center justify-between">
         <span className="font-family-ThaleahFat text-xl text-white">{positions.length} POSITION{positions.length !== 1 ? "S" : ""}</span>
-        <button onClick={onRefresh} className="text-peach-300 cursor-pointer"><RefreshCw className="h-4 w-4" /></button>
+        <button onClick={onRefresh} className="text-peach-300 cursor-pointer transition-all hover:scale-110"><RefreshCw className="h-4 w-4" /></button>
       </div>
 
-      {positions.map((pos) => {
+      {displayPositions.map((pos) => {
         const t0 = pos.token0Info || getTokenByAddress(pos.token0);
         const t1 = pos.token1Info || getTokenByAddress(pos.token1);
         const poolName = t0 && t1 ? `${t0.symbol}/${t1.symbol}` : `Position #${pos.tokenId}`;
         const hasLiq = BigInt(pos.liquidity) > 0n;
         const hasFees = BigInt(pos.tokensOwed0) > 0n || BigInt(pos.tokensOwed1) > 0n;
+        const ep = enriched.find(e => e.tokenId === pos.tokenId);
+        const fees0 = t0 ? Number(ethers.formatUnits(pos.tokensOwed0, t0.decimals)) : 0;
+        const fees1 = t1 ? Number(ethers.formatUnits(pos.tokensOwed1, t1.decimals)) : 0;
 
         return (
-          <div key={pos.tokenId} className="relative rounded px-4 py-4">
-            <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+          <div key={pos.tokenId} className="relative rounded-lg px-4 py-4">
+            <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded-lg" />
 
+            {/* Header row */}
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                {t0 && t1 && <TokenPair t0={t0} t1={t1} size={32} />}
+              <div className="flex items-center gap-3">
+                {t0 && t1 && <TokenPair t0={t0} t1={t1} size={36} />}
                 <div>
-                  <span className="font-family-ThaleahFat text-xl text-white">{poolName}</span>
-                  <span className="font-family-ThaleahFat ml-2 text-sm text-gray-500">#{pos.tokenId}</span>
+                  <span className="font-family-ThaleahFat text-2xl tracking-wider text-white">{poolName}</span>
+                  <div className="mt-0.5 flex flex-wrap gap-1">
+                    {t0 && <Badge chain={t0.sourceChain} />}
+                    <span className="font-family-ThaleahFat bg-ground-button-border rounded-sm px-1.5 py-px text-sm text-gray-400">
+                      {ep?.feeTier || `${(pos.fee / 10000).toFixed(2)}%`}
+                    </span>
+                    <span className="font-family-ThaleahFat rounded-sm bg-gray-800 px-1.5 py-px text-sm text-gray-500">
+                      NFT #{pos.tokenId}
+                    </span>
+                  </div>
                 </div>
               </div>
-              <span className={`font-family-ThaleahFat text-base ${hasLiq ? "text-[#6DBB3E]" : "text-gray-500"}`}>
-                {hasLiq ? "ACTIVE" : "CLOSED"}
+              <span className={`font-family-ThaleahFat text-lg ${hasLiq ? "text-[#6DBB3E]" : "text-gray-500"}`}>
+                {hasLiq ? "● ACTIVE" : "○ CLOSED"}
               </span>
             </div>
 
-            {hasFees && t0 && t1 && (
-              <div className="mt-2 flex gap-3">
-                <span className="font-family-ThaleahFat text-sm text-gray-500">UNCLAIMED FEES:</span>
-                <span className="font-family-ThaleahFat text-sm text-[#6DBB3E]">
-                  {Number(ethers.formatUnits(pos.tokensOwed0, t0.decimals)).toFixed(6)} {t0.symbol}
-                </span>
-                <span className="font-family-ThaleahFat text-sm text-[#6DBB3E]">
-                  {Number(ethers.formatUnits(pos.tokensOwed1, t1.decimals)).toFixed(6)} {t1.symbol}
-                </span>
+            {/* Deposited amounts */}
+            {t0 && t1 && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <div className="relative rounded px-3 py-2">
+                  <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+                  <div className="flex items-center gap-1.5">
+                    <TokenIcon token={t0} size={20} />
+                    <span className="font-family-ThaleahFat text-sm text-gray-500">{t0.symbol} DEPOSITED</span>
+                  </div>
+                  <div className="font-family-ThaleahFat text-peach-300 mt-0.5 text-xl">
+                    {ep ? ep.amount0.toFixed(ep.amount0 < 0.01 ? 6 : 4) : "..."}
+                  </div>
+                </div>
+                <div className="relative rounded px-3 py-2">
+                  <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+                  <div className="flex items-center gap-1.5">
+                    <TokenIcon token={t1} size={20} />
+                    <span className="font-family-ThaleahFat text-sm text-gray-500">{t1.symbol} DEPOSITED</span>
+                  </div>
+                  <div className="font-family-ThaleahFat text-peach-300 mt-0.5 text-xl">
+                    {ep ? ep.amount1.toFixed(ep.amount1 < 0.01 ? 6 : 4) : "..."}
+                  </div>
+                </div>
               </div>
             )}
 
+            {/* Unclaimed fees */}
+            {t0 && t1 && (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="relative rounded px-3 py-2">
+                  <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+                  <span className="font-family-ThaleahFat text-sm text-gray-500">{t0.symbol} FEES</span>
+                  <div className={`font-family-ThaleahFat mt-0.5 text-lg ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-600"}`}>
+                    {fees0 > 0 ? `+${fees0.toFixed(6)}` : "0.00"}
+                  </div>
+                </div>
+                <div className="relative rounded px-3 py-2">
+                  <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+                  <span className="font-family-ThaleahFat text-sm text-gray-500">{t1.symbol} FEES</span>
+                  <div className={`font-family-ThaleahFat mt-0.5 text-lg ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-600"}`}>
+                    {fees1 > 0 ? `+${fees1.toFixed(6)}` : "0.00"}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Info row */}
+            <div className="relative mt-2 rounded px-3 py-2">
+              <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+              {[
+                ["RANGE", "FULL RANGE (ALL TICKS)", "text-gray-400"],
+                ["LIQUIDITY", BigInt(pos.liquidity).toLocaleString(), "text-peach-300"],
+                ["POOL", ep?.poolAddress ? `${ep.poolAddress.slice(0, 8)}...${ep.poolAddress.slice(-6)}` : "—", "text-gray-400"],
+              ].map(([k, v, c]) => (
+                <div key={k} className="flex justify-between py-0.5">
+                  <span className="font-family-ThaleahFat text-sm text-gray-500">{k}</span>
+                  <span className={`font-family-ThaleahFat text-sm ${c}`}>{v}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Action buttons */}
             <div className="mt-3 flex gap-2">
               {hasFees && (
                 <button
                   onClick={() => handleCollect(pos)}
                   disabled={collecting === pos.tokenId}
-                  className="font-family-ThaleahFat bg-peach-500 flex-1 cursor-pointer rounded px-4 py-2 text-base text-black shadow-[0px_-3px_0px_0px_#C97E00_inset] disabled:opacity-50"
+                  className="font-family-ThaleahFat bg-peach-500 flex-1 cursor-pointer rounded-lg px-4 py-2.5 text-lg tracking-wider text-black shadow-[0px_-3px_0px_0px_#C97E00_inset] transition-all hover:scale-[1.01] disabled:opacity-50"
                 >
                   {collecting === pos.tokenId ? "COLLECTING..." : "COLLECT FEES"}
                 </button>
@@ -617,9 +770,9 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
                 <button
                   onClick={() => handleRemove(pos)}
                   disabled={removing === pos.tokenId}
-                  className="font-family-ThaleahFat flex-1 cursor-pointer rounded bg-red-600 px-4 py-2 text-base text-white shadow-[0px_-3px_0px_0px_#991B1B_inset] disabled:opacity-50"
+                  className="font-family-ThaleahFat flex-1 cursor-pointer rounded-lg bg-red-600 px-4 py-2.5 text-lg tracking-wider text-white shadow-[0px_-3px_0px_0px_#991B1B_inset] transition-all hover:scale-[1.01] disabled:opacity-50"
                 >
-                  {removing === pos.tokenId ? "REMOVING..." : "REMOVE"}
+                  {removing === pos.tokenId ? "REMOVING..." : "REMOVE LIQUIDITY"}
                 </button>
               )}
             </div>
