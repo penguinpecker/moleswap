@@ -44,7 +44,7 @@ export const NavBar = () => {
         {/* Desktop Menu - Hidden on mobile */}
         <div className="hidden w-full items-center justify-between lg:flex">
           {/* Left menu */}
-          <div className="flex gap-4 md:gap-12">
+          <div className="flex gap-4 lg:gap-8 xl:gap-12">
             <Link href="/dapp" className={linkClass("/dapp")}>
               DAPP
             </Link>
@@ -57,7 +57,7 @@ export const NavBar = () => {
           </div>
 
           {/* Center logo */}
-          <Link href="/" className="-my-4 mx-4 shrink-0 lg:mx-8">
+          <Link href="/" className="-my-4 mx-2 shrink-0 lg:mx-4">
             <Image
               src="/moleswap-logo.png"
               alt="MoleSwap"
@@ -68,7 +68,7 @@ export const NavBar = () => {
           </Link>
 
           {/* Right menu */}
-          <div className="flex gap-4 md:gap-12">
+          <div className="flex gap-4 lg:gap-8 xl:gap-12">
             <Link href="/profile" className={linkClass("/profile")}>
               PROFILE
             </Link>
