@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
 import { NavBar, BackgroundImage } from "../shared";
-import { Droplets, RefreshCw, Plus, Minus, ArrowUpRight, ChevronDown } from "lucide-react";
+import { Droplets, RefreshCw, Plus, Minus, ArrowUpRight, ChevronDown, AlertTriangle, Loader2 } from "lucide-react";
 import { usePushWalletContext, usePushChainClient, PushUI } from "@pushchain/ui-kit";
 import {
   CONTRACTS, TOKENS, POOLS as AMM_POOLS,
@@ -13,7 +13,6 @@ import {
 } from "@/lib/pushchain/amm";
 import { ethers } from "ethers";
 
-// ═══ HELPERS ═══
 const fmt = (n: number) => {
   if (!Number.isFinite(n) || isNaN(n)) return "0.00";
   if (n < 0) return "0.00";
@@ -34,7 +33,6 @@ const chainColors: Record<string, string> = {
   "Push Chain": "#D548EC",
 };
 
-// ═══ POOL DATA (read from on-chain) ═══
 interface PoolDisplay {
   name: string;
   token0: TokenInfo;
@@ -61,12 +59,7 @@ const ERC20_BAL_ABI = [
   "function balanceOf(address account) view returns (uint256)",
 ];
 
-// sqrtPriceX96 → human-readable price (token1 per token0)
-// Uses BigInt to avoid Number overflow on uint160 values
 function sqrtPriceToPrice(sqrtPriceX96: bigint, decimals0: number, decimals1: number): number {
-  // price = (sqrtPriceX96 / 2^96)^2 * 10^(decimals0 - decimals1)
-  // To avoid overflow: price = sqrtPriceX96^2 / 2^192 * 10^(d0-d1)
-  // We scale to keep precision: multiply by 10^18 before dividing
   const PRECISION = 10n ** 18n;
   const Q192 = 2n ** 192n;
   const sqr = sqrtPriceX96 * sqrtPriceX96;
@@ -76,7 +69,6 @@ function sqrtPriceToPrice(sqrtPriceX96: bigint, decimals0: number, decimals1: nu
   return price;
 }
 
-// TVL: sum both reserves, using reserve1 * 2 as proxy (since both sides ≈ equal value in AMM)
 function calcTvl(reserve0: number, reserve1: number, price: number): number {
   if (!Number.isFinite(price) || price <= 0) return reserve1 * 2;
   const val0InToken1 = reserve0 * price;
@@ -108,21 +100,15 @@ async function fetchPoolData(): Promise<PoolDisplay[]> {
       const sqrtPriceX96 = slot0[0];
       const hasLiquidity = liquidity > 0n;
 
-      // Parse reserves
       const reserve0 = Number(ethers.formatUnits(bal0, t0.decimals));
       const reserve1 = Number(ethers.formatUnits(bal1, t1.decimals));
 
-      // Price: token1 per token0
       const price = sqrtPriceToPrice(sqrtPriceX96, t0.decimals, t1.decimals);
-
-      // TVL from reserves
       const tvl = calcTvl(reserve0, reserve1, price);
 
-      // Fee APY estimate: (fee_tier / 1e6) * 365 * (volume_assumption / tvl)
       const feePct = pool.fee / 1e6;
-      const estimatedDailyVolRatio = hasLiquidity ? 0.05 + Math.random() * 0.1 : 0;
-      const feeApy = +(feePct * estimatedDailyVolRatio * 365 * 100).toFixed(2);
-      const vol24h = tvl * estimatedDailyVolRatio;
+      const feeApy = hasLiquidity && tvl > 0 ? +(feePct * 0.075 * 365 * 100).toFixed(2) : 0;
+      const vol24h = tvl * 0.075;
       const fees24h = vol24h * feePct;
 
       return {
@@ -150,7 +136,6 @@ async function fetchPoolData(): Promise<PoolDisplay[]> {
     .filter(Boolean) as PoolDisplay[];
 }
 
-// ═══ SMALL COMPONENTS ═══
 const Badge = ({ chain }: { chain: string }) => {
   const c = chainColors[chain] || "#D548EC";
   return (
@@ -198,19 +183,6 @@ const TokenPair = ({ t0, t1, size = 28 }: { t0: TokenInfo; t1: TokenInfo; size?:
   </div>
 );
 
-const UtilBar = ({ pct }: { pct: number }) => {
-  const c = pct > 80 ? "#ef4444" : pct > 60 ? "#feae34" : "#6DBB3E";
-  return (
-    <div className="border-ground-button-border h-1.5 w-full overflow-hidden rounded-sm border bg-[#281a12]">
-      <div
-        className="h-full rounded-sm transition-all duration-500"
-        style={{ width: `${pct}%`, background: `linear-gradient(180deg, ${c}, ${c}88)` }}
-      />
-    </div>
-  );
-};
-
-// ═══ MAIN PAGE ═══
 const PoolsPage = () => (
   <div className="relative flex min-h-screen w-full flex-col items-center">
     <BackgroundImage />
@@ -225,7 +197,21 @@ const PoolsPage = () => (
 
 export default PoolsPage;
 
-// ═══ CONTENT ═══
+interface LiquidityPosition {
+  tokenId: number;
+  token0: string;
+  token1: string;
+  fee: number;
+  tickLower: number;
+  tickUpper: number;
+  liquidity: string;
+  tokensOwed0: string;
+  tokensOwed1: string;
+  token0Info?: TokenInfo;
+  token1Info?: TokenInfo;
+  poolInfo?: PoolInfo;
+}
+
 const PoolsContent = () => {
   const walletCtx = usePushWalletContext();
   const { pushChainClient } = usePushChainClient();
@@ -238,6 +224,8 @@ const PoolsContent = () => {
   const [chainFilter, setChainFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [pools, setPools] = useState<PoolDisplay[]>([]);
+  const [positions, setPositions] = useState<LiquidityPosition[]>([]);
+  const [posLoading, setPosLoading] = useState(false);
 
   const loadPools = useCallback(async () => {
     setLoading(true);
@@ -251,10 +239,24 @@ const PoolsContent = () => {
     }
   }, []);
 
+  const loadPositions = useCallback(async () => {
+    if (!address) return;
+    setPosLoading(true);
+    try {
+      const { getUserPositions } = await import("@/lib/pushchain/amm");
+      const pos = await getUserPositions(address);
+      setPositions(pos);
+    } catch (err) {
+      console.error("Failed to load positions:", err);
+    } finally {
+      setPosLoading(false);
+    }
+  }, [address]);
+
   useEffect(() => { loadPools(); }, [loadPools]);
+  useEffect(() => { if (tab === "positions" && address) loadPositions(); }, [tab, address, loadPositions]);
 
   const chains = useMemo(() => ["all", ...new Set(pools.map(p => p.token0.sourceChain))], [pools]);
-
   const filtered = pools.filter(p => chainFilter === "all" || p.token0.sourceChain === chainFilter);
   const sorted = [...filtered].sort((a, b) =>
     sort === "tvl" ? b.tvl - a.tvl : sort === "apy" ? b.feeApy - a.feeApy : b.vol24h - a.vol24h
@@ -273,7 +275,6 @@ const PoolsContent = () => {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-2 sm:px-6">
-      {/* Header */}
       <div className="relative z-10 mx-auto mt-2 w-[90%] rounded-lg px-4 py-3 text-center sm:w-[85%] sm:px-6 sm:py-4">
         <h1 className="text-peach-300 text-shadow-header font-family-ThaleahFat text-2xl font-bold tracking-widest uppercase sm:text-5xl">
           UNIVERSAL POOLS
@@ -287,14 +288,12 @@ const PoolsContent = () => {
         />
       </div>
 
-      {/* Main Content */}
       <div className="relative mb-6 h-full min-h-[500px]">
         <Image
           src="/quest/Quest-BG.png" alt="BG" width={200} height={200}
           className="absolute inset-0 z-0 h-full w-full object-fill"
         />
 
-        {/* Tabs */}
         <div className="relative z-50 mt-8 flex justify-center gap-2 px-2 pt-3 sm:mt-12 sm:gap-4 sm:px-4">
           <button className={tabClass("markets")} onClick={() => setTab("markets")}>
             <Droplets className="mr-1 inline h-4 w-4 sm:mr-2 sm:h-5 sm:w-5" /> MARKETS
@@ -309,13 +308,12 @@ const PoolsContent = () => {
             <PoolDetail pool={selectedPool} onBack={() => setSelectedPool(null)} address={address} isConnected={isConnected} walletCtx={walletCtx} pushChainClient={pushChainClient} />
           ) : tab === "markets" ? (
             <>
-              {/* Stats row */}
               <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-5 sm:grid-cols-4 sm:gap-3">
                 {[
                   { l: "TOTAL VALUE LOCKED", v: loading ? "..." : `$${fmt(totalTvl)}`, icon: "🏦" },
-                  { l: "24H VOLUME", v: loading ? "..." : `$${fmt(totalVol)}`, icon: "📊" },
+                  { l: "24H VOLUME (EST)", v: loading ? "..." : `$${fmt(totalVol)}`, icon: "📊" },
                   { l: "ACTIVE POOLS", v: loading ? "..." : `${pools.filter(p => p.active).length}/${pools.length}`, icon: "💧" },
-                  { l: "AVG FEE APY", v: loading ? "..." : `${avgApy.toFixed(1)}%`, icon: "📈" },
+                  { l: "AVG FEE APY (EST)", v: loading ? "..." : `${avgApy.toFixed(1)}%`, icon: "📈" },
                 ].map((s, i) => (
                   <div key={i} className="relative overflow-hidden rounded px-3 py-3 text-center">
                     <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
@@ -327,7 +325,6 @@ const PoolsContent = () => {
                 ))}
               </div>
 
-              {/* Chain filter */}
               <div className="no-scrollbar mb-4 flex gap-2 overflow-x-auto pb-1">
                 {chains.map(ch => (
                   <button
@@ -349,7 +346,6 @@ const PoolsContent = () => {
                 ))}
               </div>
 
-              {/* Sort + Refresh */}
               <div className="mb-2 flex items-center justify-end gap-1">
                 {([["tvl", "TVL"], ["apy", "APY"], ["vol", "VOLUME"]] as const).map(([k, l]) => (
                   <button
@@ -369,7 +365,6 @@ const PoolsContent = () => {
                 </button>
               </div>
 
-              {/* Column headers (desktop) */}
               <div className="hidden px-3 pb-2 sm:grid" style={{ gridTemplateColumns: "2.4fr .6fr .7fr .7fr .9fr" }}>
                 {["POOL", "TVL", "FEE APY", "24H VOL", ""].map((h, i) => (
                   <span key={i} className={`font-family-ThaleahFat text-base tracking-wider text-gray-500 ${i > 0 ? "text-right" : ""}`}>
@@ -378,7 +373,6 @@ const PoolsContent = () => {
                 ))}
               </div>
 
-              {/* Pool rows */}
               {loading ? (
                 <div className="py-12 text-center">
                   <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-yellow-100 border-t-transparent" />
@@ -392,7 +386,7 @@ const PoolsContent = () => {
                 </div>
               ) : (
               <div className="flex flex-col gap-1.5">
-                {sorted.map((p, i) => (
+                {sorted.map((p) => (
                   <button
                     key={p.pool.address}
                     onClick={() => setSelectedPool(p)}
@@ -400,8 +394,6 @@ const PoolsContent = () => {
                   >
                     <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
                       className="absolute inset-0 z-[-1] h-full w-full rounded" />
-
-                    {/* Desktop row */}
                     <div className="hidden items-center gap-1 px-3 py-3 sm:grid" style={{ gridTemplateColumns: "2.4fr .6fr .7fr .7fr .9fr" }}>
                       <div className="flex items-center gap-3">
                         <TokenPair t0={p.token0} t1={p.token1} size={36} />
@@ -424,8 +416,6 @@ const PoolsContent = () => {
                         </span>
                       </div>
                     </div>
-
-                    {/* Mobile row */}
                     <div className="flex items-center justify-between px-3 py-3 sm:hidden">
                       <div className="flex items-center gap-2">
                         <TokenPair t0={p.token0} t1={p.token1} size={32} />
@@ -445,43 +435,19 @@ const PoolsContent = () => {
               )}
             </>
           ) : (
-            /* ═══ MY POSITIONS — empty state with mole wave ═══ */
-            <div className="flex flex-col items-center gap-4 py-12">
-              <div className="animate-[float_2s_ease-in-out_infinite]">
-                <Image
-                  src="/profile/c2.png"
-                  alt="Mole waving"
-                  width={80}
-                  height={80}
-                  className="object-contain"
-                  style={{ imageRendering: "pixelated" }}
-                />
-              </div>
-              <p className="font-family-ThaleahFat text-shadow-black text-2xl tracking-wider text-white">
-                NO ACTIVE POSITIONS
-              </p>
-              <p className="font-family-ThaleahFat max-w-xs text-center text-sm text-gray-400">
-                SUPPLY OR BORROW PRC-20 ASSETS ON PUSHCHAIN TO START EARNING
-              </p>
-              {!isConnected ? (
-                <button
-                  onClick={() => walletCtx?.handleConnectToPushWallet?.()}
-                  className="font-family-ThaleahFat bg-peach-500 border-3 mt-2 cursor-pointer rounded-lg border-[#523525] px-8 py-3 text-xl tracking-wider text-black shadow-[0px_-6px_0px_0px_#C97E00_inset,0px_7.5px_0px_0px_rgba(255,212,122,0.6)_inset] transition-all hover:scale-[1.02]"
-                >
-                  CONNECT WALLET
-                </button>
-              ) : (
-                <button
-                  onClick={() => setTab("markets")}
-                  className="font-family-ThaleahFat mt-2 cursor-pointer rounded-lg bg-[#6DBB3E] px-8 py-3 text-xl tracking-wider text-white shadow-[0px_-4px_0px_0px_#4A8B29_inset,0px_4px_0px_0px_rgba(255,255,255,0.3)_inset] transition-all hover:scale-[1.02]"
-                >
-                  EXPLORE MARKETS
-                </button>
-              )}
-            </div>
+            /* ═══ POSITIONS TAB ═══ */
+            <PositionsTab
+              positions={positions}
+              loading={posLoading}
+              isConnected={isConnected}
+              walletCtx={walletCtx}
+              pushChainClient={pushChainClient}
+              address={address}
+              onRefresh={loadPositions}
+              onGoToMarkets={() => setTab("markets")}
+            />
           )}
 
-          {/* Footer tag */}
           <p className="font-family-ThaleahFat mt-6 text-center text-sm tracking-widest text-gray-600">
             PUSHCHAIN V3 CONCENTRATED LIQUIDITY — DONUT TESTNET — ALL POOLS PAIRED VS WPC
           </p>
@@ -491,72 +457,316 @@ const PoolsContent = () => {
   );
 };
 
-// ═══ POOL DETAIL ═══
+// ═══ POSITIONS TAB ═══
+const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainClient, address, onRefresh, onGoToMarkets }: {
+  positions: LiquidityPosition[]; loading: boolean; isConnected: boolean; walletCtx: any; pushChainClient: any; address: string | null;
+  onRefresh: () => void; onGoToMarkets: () => void;
+}) => {
+  const [removing, setRemoving] = useState<number | null>(null);
+  const [collecting, setCollecting] = useState<number | null>(null);
+  const [txMsg, setTxMsg] = useState<string | null>(null);
+
+  const handleRemove = async (pos: LiquidityPosition) => {
+    if (!address || removing) return;
+    setRemoving(pos.tokenId);
+    setTxMsg("Removing liquidity...");
+    try {
+      const { removeLiquidity } = await import("@/lib/pushchain/amm");
+      const result = await removeLiquidity({
+        pushChainClient,
+        tokenId: pos.tokenId,
+        liquidity: pos.liquidity,
+        recipient: address,
+        burnAfter: true,
+        onStep: (_s, label) => setTxMsg(label),
+      });
+      setTxMsg(result.success ? "Liquidity removed!" : (result.error || "Failed"));
+      setTimeout(() => { setTxMsg(null); onRefresh(); }, 3000);
+    } catch (err: any) {
+      setTxMsg(err?.message?.slice(0, 100) || "Failed");
+      setTimeout(() => setTxMsg(null), 4000);
+    } finally {
+      setRemoving(null);
+    }
+  };
+
+  const handleCollect = async (pos: LiquidityPosition) => {
+    if (!address || collecting) return;
+    setCollecting(pos.tokenId);
+    setTxMsg("Collecting fees...");
+    try {
+      const { collectFees } = await import("@/lib/pushchain/amm");
+      const result = await collectFees({
+        pushChainClient,
+        tokenId: pos.tokenId,
+        recipient: address,
+      });
+      setTxMsg(result.success ? "Fees collected!" : (result.error || "Failed"));
+      setTimeout(() => { setTxMsg(null); onRefresh(); }, 3000);
+    } catch (err: any) {
+      setTxMsg(err?.message?.slice(0, 100) || "Failed");
+      setTimeout(() => setTxMsg(null), 4000);
+    } finally {
+      setCollecting(null);
+    }
+  };
+
+  if (!isConnected) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-12">
+        <Image src="/profile/c2.png" alt="Mole" width={80} height={80} className="object-contain" style={{ imageRendering: "pixelated" }} />
+        <p className="font-family-ThaleahFat text-shadow-black text-2xl tracking-wider text-white">CONNECT WALLET TO VIEW POSITIONS</p>
+        <button
+          onClick={() => walletCtx?.handleConnectToPushWallet?.()}
+          className="font-family-ThaleahFat bg-peach-500 border-3 mt-2 cursor-pointer rounded-lg border-[#523525] px-8 py-3 text-xl tracking-wider text-black shadow-[0px_-6px_0px_0px_#C97E00_inset,0px_7.5px_0px_0px_rgba(255,212,122,0.6)_inset] transition-all hover:scale-[1.02]"
+        >
+          CONNECT WALLET
+        </button>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="py-12 text-center">
+        <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-yellow-100 border-t-transparent" />
+        <p className="font-family-ThaleahFat text-peach-300 mt-4 text-xl">LOADING POSITIONS...</p>
+      </div>
+    );
+  }
+
+  if (positions.length === 0) {
+    return (
+      <div className="flex flex-col items-center gap-4 py-12">
+        <Image src="/profile/c2.png" alt="Mole" width={80} height={80} className="object-contain" style={{ imageRendering: "pixelated" }} />
+        <p className="font-family-ThaleahFat text-shadow-black text-2xl tracking-wider text-white">NO ACTIVE POSITIONS</p>
+        <p className="font-family-ThaleahFat max-w-xs text-center text-sm text-gray-400">
+          ADD LIQUIDITY TO A POOL TO START EARNING FEES
+        </p>
+        <button
+          onClick={onGoToMarkets}
+          className="font-family-ThaleahFat mt-2 cursor-pointer rounded-lg bg-[#6DBB3E] px-8 py-3 text-xl tracking-wider text-white shadow-[0px_-4px_0px_0px_#4A8B29_inset,0px_4px_0px_0px_rgba(255,255,255,0.3)_inset] transition-all hover:scale-[1.02]"
+        >
+          EXPLORE MARKETS
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {txMsg && (
+        <div className="relative rounded px-4 py-3 text-center">
+          <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+          <p className="font-family-ThaleahFat text-peach-300 text-lg">{txMsg}</p>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between">
+        <span className="font-family-ThaleahFat text-xl text-white">{positions.length} POSITION{positions.length !== 1 ? "S" : ""}</span>
+        <button onClick={onRefresh} className="text-peach-300 cursor-pointer"><RefreshCw className="h-4 w-4" /></button>
+      </div>
+
+      {positions.map((pos) => {
+        const t0 = pos.token0Info || getTokenByAddress(pos.token0);
+        const t1 = pos.token1Info || getTokenByAddress(pos.token1);
+        const poolName = t0 && t1 ? `${t0.symbol}/${t1.symbol}` : `Position #${pos.tokenId}`;
+        const hasLiq = BigInt(pos.liquidity) > 0n;
+        const hasFees = BigInt(pos.tokensOwed0) > 0n || BigInt(pos.tokensOwed1) > 0n;
+
+        return (
+          <div key={pos.tokenId} className="relative rounded px-4 py-4">
+            <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                {t0 && t1 && <TokenPair t0={t0} t1={t1} size={32} />}
+                <div>
+                  <span className="font-family-ThaleahFat text-xl text-white">{poolName}</span>
+                  <span className="font-family-ThaleahFat ml-2 text-sm text-gray-500">#{pos.tokenId}</span>
+                </div>
+              </div>
+              <span className={`font-family-ThaleahFat text-base ${hasLiq ? "text-[#6DBB3E]" : "text-gray-500"}`}>
+                {hasLiq ? "ACTIVE" : "CLOSED"}
+              </span>
+            </div>
+
+            {hasFees && t0 && t1 && (
+              <div className="mt-2 flex gap-3">
+                <span className="font-family-ThaleahFat text-sm text-gray-500">UNCLAIMED FEES:</span>
+                <span className="font-family-ThaleahFat text-sm text-[#6DBB3E]">
+                  {Number(ethers.formatUnits(pos.tokensOwed0, t0.decimals)).toFixed(6)} {t0.symbol}
+                </span>
+                <span className="font-family-ThaleahFat text-sm text-[#6DBB3E]">
+                  {Number(ethers.formatUnits(pos.tokensOwed1, t1.decimals)).toFixed(6)} {t1.symbol}
+                </span>
+              </div>
+            )}
+
+            <div className="mt-3 flex gap-2">
+              {hasFees && (
+                <button
+                  onClick={() => handleCollect(pos)}
+                  disabled={collecting === pos.tokenId}
+                  className="font-family-ThaleahFat bg-peach-500 flex-1 cursor-pointer rounded px-4 py-2 text-base text-black shadow-[0px_-3px_0px_0px_#C97E00_inset] disabled:opacity-50"
+                >
+                  {collecting === pos.tokenId ? "COLLECTING..." : "COLLECT FEES"}
+                </button>
+              )}
+              {hasLiq && (
+                <button
+                  onClick={() => handleRemove(pos)}
+                  disabled={removing === pos.tokenId}
+                  className="font-family-ThaleahFat flex-1 cursor-pointer rounded bg-red-600 px-4 py-2 text-base text-white shadow-[0px_-3px_0px_0px_#991B1B_inset] disabled:opacity-50"
+                >
+                  {removing === pos.tokenId ? "REMOVING..." : "REMOVE"}
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// ═══ POOL DETAIL (REWRITTEN) ═══
 const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainClient }: {
   pool: PoolDisplay; onBack: () => void; address: string | null; isConnected: boolean; walletCtx: any; pushChainClient: any;
 }) => {
   const [actionTab, setActionTab] = useState<"add" | "remove" | null>(null);
-  const [amount, setAmount] = useState("");
+  const [amount0, setAmount0] = useState("");
+  const [amount1, setAmount1] = useState("");
+  const [balance0, setBalance0] = useState<string | null>(null);
+  const [balance1, setBalance1] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [txDone, setTxDone] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [txError, setTxError] = useState<string | null>(null);
   const [stepLabel, setStepLabel] = useState("");
+  const [inputFocused, setInputFocused] = useState<0 | 1>(0);
 
-  const handleAction = async () => {
-    if (!amount || !address) return;
+  useEffect(() => {
+    if (!address) return;
+    const fetchBalances = async () => {
+      try {
+        const provider = getProvider();
+        const isNative0 = pool.token0.address === ethers.ZeroAddress || pool.token0.address === "0x0000000000000000000000000000000000000000";
+        const isNative1 = pool.token1.address === ethers.ZeroAddress || pool.token1.address === "0x0000000000000000000000000000000000000000";
+
+        const [b0, b1] = await Promise.all([
+          isNative0
+            ? provider.getBalance(address)
+            : new ethers.Contract(pool.token0.address, ERC20_BAL_ABI, provider).balanceOf(address),
+          isNative1
+            ? provider.getBalance(address)
+            : new ethers.Contract(pool.token1.address, ERC20_BAL_ABI, provider).balanceOf(address),
+        ]);
+        setBalance0(ethers.formatUnits(b0, pool.token0.decimals));
+        setBalance1(ethers.formatUnits(b1, pool.token1.decimals));
+      } catch (err) {
+        console.error("Failed to fetch balances:", err);
+        setBalance0(null);
+        setBalance1(null);
+      }
+    };
+    fetchBalances();
+  }, [address, pool]);
+
+  const updateAmount1FromAmount0 = (val: string) => {
+    setAmount0(val);
+    if (inputFocused === 0 && pool.price > 0 && val && !isNaN(Number(val)) && Number(val) > 0) {
+      setAmount1((Number(val) * pool.price).toFixed(Math.min(pool.token1.decimals, 8)));
+    } else if (!val) {
+      setAmount1("");
+    }
+  };
+
+  const updateAmount0FromAmount1 = (val: string) => {
+    setAmount1(val);
+    if (inputFocused === 1 && pool.price > 0 && val && !isNaN(Number(val)) && Number(val) > 0) {
+      setAmount0((Number(val) / pool.price).toFixed(Math.min(pool.token0.decimals, 8)));
+    } else if (!val) {
+      setAmount0("");
+    }
+  };
+
+  const setPercentage0 = (pct: number) => {
+    if (!balance0) return;
+    const val = (Number(balance0) * pct).toFixed(Math.min(pool.token0.decimals, 8));
+    setInputFocused(0);
+    updateAmount1FromAmount0(val);
+  };
+
+  const setPercentage1 = (pct: number) => {
+    if (!balance1) return;
+    const val = (Number(balance1) * pct).toFixed(Math.min(pool.token1.decimals, 8));
+    setInputFocused(1);
+    updateAmount0FromAmount1(val);
+  };
+
+  const insufficientBalance0 = amount0 && balance0 && Number(amount0) > Number(balance0);
+  const insufficientBalance1 = amount1 && balance1 && Number(amount1) > Number(balance1);
+  const hasInsufficientBalance = insufficientBalance0 || insufficientBalance1;
+  const canSubmit = amount0 && amount1 && Number(amount0) > 0 && Number(amount1) > 0 && !hasInsufficientBalance && !loading;
+
+  const handleAddLiquidity = async () => {
+    if (!address || !canSubmit) return;
     setLoading(true);
     setTxError(null);
     setTxHash(null);
     setStepLabel("Preparing...");
     try {
-      if (actionTab === "add") {
-        const { addLiquidity } = await import("@/lib/pushchain/amm");
-        const decimals0 = pool.token0.decimals;
-        const decimals1 = pool.token1.decimals;
+      const { addLiquidity } = await import("@/lib/pushchain/amm");
+      const amount0Wei = ethers.parseUnits(amount0, pool.token0.decimals).toString();
+      const amount1Wei = ethers.parseUnits(amount1, pool.token1.decimals).toString();
 
-        const amount0Wei = ethers.parseUnits(amount, decimals0).toString();
-        const amount1Wei = pool.price > 0
-          ? ethers.parseUnits((Number(amount) * pool.price).toFixed(Math.min(decimals1, 8)), decimals1).toString()
-          : "0";
+      const result = await addLiquidity({
+        pushChainClient,
+        token0: pool.pool.token0,
+        token1: pool.pool.token1,
+        fee: pool.fee,
+        amount0Desired: amount0Wei,
+        amount1Desired: amount1Wei,
+        recipient: address,
+        onStep: (_step, label, status) => {
+          setStepLabel(label);
+          if (status === "error") setTxError(label);
+        },
+      });
 
-        const result = await addLiquidity({
-          pushChainClient,
-          token0: pool.pool.token0,
-          token1: pool.pool.token1,
-          fee: pool.fee,
-          amount0Desired: amount0Wei,
-          amount1Desired: amount1Wei,
-          recipient: address,
-          onStep: (_step, label, status) => {
-            setStepLabel(label);
-            if (status === "error") setTxError(label);
-          },
-        });
-
-        if (result.success) {
-          setTxHash(result.txHash);
-          setTxDone(true);
-          setAmount("");
-          setTimeout(() => setTxDone(false), 5000);
-        } else {
-          setTxError(result.error || "Transaction failed");
-        }
+      if (result.success) {
+        setTxHash(result.txHash);
+        setTxDone(true);
+        setAmount0("");
+        setAmount1("");
       } else {
-        setTxError("Remove liquidity requires a position NFT — use Positions tab to manage");
+        setTxError(result.error || "Transaction failed");
       }
     } catch (err: any) {
-      console.error("Action failed:", err);
-      setTxError(err?.message?.slice(0, 150) || "Transaction failed");
+      console.error("Add liquidity failed:", err);
+      const msg = err?.message || "Transaction failed";
+      if (msg.includes("STF")) {
+        setTxError("Insufficient token balance or allowance (STF)");
+      } else {
+        setTxError(msg.slice(0, 150));
+      }
     } finally {
       setLoading(false);
       setStepLabel("");
     }
   };
 
+  const getButtonLabel = () => {
+    if (loading) return stepLabel || "PROCESSING...";
+    if (insufficientBalance0) return `INSUFFICIENT ${pool.token0.symbol} BALANCE`;
+    if (insufficientBalance1) return `INSUFFICIENT ${pool.token1.symbol} BALANCE`;
+    if (!amount0 || Number(amount0) <= 0) return "ENTER AMOUNT";
+    return "ADD LIQUIDITY";
+  };
+
   return (
     <div className="flex flex-col gap-3">
-      {/* Back + title */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <button onClick={onBack} className="font-family-ThaleahFat text-peach-300 cursor-pointer bg-transparent text-base">
           ← BACK
@@ -574,12 +784,11 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
         </div>
       </div>
 
-      {/* Pool Stats */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
           { l: "TVL", v: `$${fmt(pool.tvl)}`, c: "text-peach-500" },
-          { l: "24H VOLUME", v: `$${fmt(pool.vol24h)}`, c: "text-[#6DBB3E]" },
-          { l: "FEE APY", v: `${pool.feeApy}%`, c: "text-[#6DBB3E]" },
+          { l: "24H VOLUME (EST)", v: `$${fmt(pool.vol24h)}`, c: "text-[#6DBB3E]" },
+          { l: "FEE APY (EST)", v: `${pool.feeApy}%`, c: "text-[#6DBB3E]" },
           { l: "LIQUIDITY", v: BigInt(pool.liquidity) > 0n ? "ACTIVE" : "EMPTY", c: BigInt(pool.liquidity) > 0n ? "text-[#6DBB3E]" : "text-red-400" },
         ].map((s, i) => (
           <div key={i} className="relative rounded px-3 py-3 text-center">
@@ -591,7 +800,6 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
         ))}
       </div>
 
-      {/* Token Reserves in Pool */}
       <div className="grid grid-cols-2 gap-2">
         {[
           { tok: pool.token0, reserve: pool.reserve0 },
@@ -606,14 +814,11 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
               <Badge chain={item.tok.sourceChain} />
             </div>
             <div className="font-family-ThaleahFat mt-1 text-sm text-gray-500">POOLED AMOUNT</div>
-            <div className="font-family-ThaleahFat text-peach-300 text-xl">
-              {item.reserve}
-            </div>
+            <div className="font-family-ThaleahFat text-peach-300 text-xl">{item.reserve}</div>
           </div>
         ))}
       </div>
 
-      {/* Price info */}
       <div className="relative rounded px-3 py-3">
         <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
           className="absolute inset-0 z-[-1] h-full w-full rounded" />
@@ -625,7 +830,6 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
         </div>
       </div>
 
-      {/* Action buttons / form */}
       {!isConnected ? (
         <button
           onClick={() => walletCtx?.handleConnectToPushWallet?.()}
@@ -636,13 +840,13 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
       ) : txDone ? (
         <div className="py-4 text-center">
           <p className="font-family-ThaleahFat text-2xl text-[#6DBB3E]">LIQUIDITY ADDED ✓</p>
-          <p className="font-family-ThaleahFat mt-1 text-base text-gray-400">+25 XP EARNED</p>
           {txHash && (
             <a href={`https://donut.push.network/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
               className="font-family-ThaleahFat text-peach-300 mt-1 block text-base underline">
               VIEW ON EXPLORER →
             </a>
           )}
+          <button onClick={() => { setTxDone(false); setActionTab(null); }} className="font-family-ThaleahFat text-peach-300 mt-3 cursor-pointer text-base underline">DONE</button>
         </div>
       ) : txError ? (
         <div className="py-4 text-center">
@@ -659,7 +863,7 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
             + ADD LIQUIDITY
           </button>
           <button
-            onClick={() => setActionTab("remove")}
+            onClick={() => setTxError("To remove liquidity, go to the POSITIONS tab and select a position to withdraw from.")}
             className="font-family-ThaleahFat bg-peach-500 flex-1 cursor-pointer rounded-lg px-6 py-3 text-xl tracking-wider text-black shadow-[0px_-4px_0px_0px_#C97E00_inset,0px_4px_0px_0px_rgba(255,212,122,0.6)_inset] transition-all hover:scale-[1.01]"
           >
             − REMOVE LIQUIDITY
@@ -670,63 +874,91 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
           <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
             className="absolute inset-0 z-[-1] h-full w-full rounded-lg" />
           <div className="mb-3 flex items-center justify-between">
-            <span className="font-family-ThaleahFat text-xl tracking-wider text-white">
-              {actionTab === "add" ? "+ ADD" : "− REMOVE"} LIQUIDITY
-            </span>
-            <button onClick={() => setActionTab(null)} className="font-family-ThaleahFat text-peach-300 cursor-pointer text-base">✕</button>
+            <span className="font-family-ThaleahFat text-xl tracking-wider text-white">+ ADD LIQUIDITY</span>
+            <button onClick={() => { setActionTab(null); setAmount0(""); setAmount1(""); }} className="font-family-ThaleahFat text-peach-300 cursor-pointer text-base">✕</button>
           </div>
 
-          {/* Amount input */}
-          <div className="relative mb-3 rounded px-3 py-2.5">
+          {/* ═══ TOKEN 0 INPUT ═══ */}
+          <div className="relative mb-2 rounded px-3 py-2.5">
             <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
               className="absolute inset-0 z-[-1] h-full w-full rounded" />
             <div className="mb-1 flex justify-between">
-              <span className="font-family-ThaleahFat text-base text-gray-500">{pool.token0.symbol} AMOUNT</span>
-              <span className="font-family-ThaleahFat text-base text-gray-500">BAL: 0.00</span>
+              <span className="font-family-ThaleahFat text-base text-gray-500">{pool.token0.symbol}</span>
+              <span className={`font-family-ThaleahFat text-base ${insufficientBalance0 ? "text-red-400" : "text-gray-500"}`}>
+                BAL: {balance0 !== null ? Number(balance0).toFixed(4) : "..."}
+              </span>
             </div>
             <div className="flex items-center gap-2">
               <TokenIcon token={pool.token0} size={28} />
               <input
                 type="text"
-                value={amount}
-                onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ""))}
+                value={amount0}
+                onFocus={() => setInputFocused(0)}
+                onChange={e => updateAmount1FromAmount0(e.target.value.replace(/[^0-9.]/g, ""))}
                 placeholder="0.0"
                 className="font-family-ThaleahFat w-full flex-1 bg-transparent text-2xl tracking-wider text-white placeholder:text-gray-600 focus:outline-none"
               />
-              {["25%", "50%", "MAX"].map(p => (
-                <button key={p} className="font-family-ThaleahFat text-peach-500 border-ground-button-border bg-ground-button-border cursor-pointer rounded-sm border px-2 py-1 text-sm">
-                  {p}
+              {[{ l: "25%", v: 0.25 }, { l: "50%", v: 0.5 }, { l: "MAX", v: 1 }].map(p => (
+                <button key={p.l} onClick={() => setPercentage0(p.v)} className="font-family-ThaleahFat text-peach-500 border-ground-button-border bg-ground-button-border cursor-pointer rounded-sm border px-2 py-1 text-sm">
+                  {p.l}
                 </button>
               ))}
             </div>
+            {insufficientBalance0 && (
+              <div className="mt-1 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3 text-red-400" />
+                <span className="font-family-ThaleahFat text-xs text-red-400">INSUFFICIENT {pool.token0.symbol} BALANCE</span>
+              </div>
+            )}
           </div>
 
-          {/* Estimated token1 */}
-          {actionTab === "add" && pool.price > 0 && amount && (
-            <div className="relative mb-3 rounded px-3 py-2.5">
-              <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
-                className="absolute inset-0 z-[-1] h-full w-full rounded" />
-              <div className="mb-1 flex justify-between">
-                <span className="font-family-ThaleahFat text-base text-gray-500">{pool.token1.symbol} (ESTIMATED)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <TokenIcon token={pool.token1} size={28} />
-                <span className="font-family-ThaleahFat text-2xl text-gray-300">
-                  {(Number(amount) * pool.price).toFixed(6)}
-                </span>
-              </div>
+          <div className="my-1 flex justify-center">
+            <span className="font-family-ThaleahFat text-2xl text-gray-500">+</span>
+          </div>
+
+          {/* ═══ TOKEN 1 INPUT ═══ */}
+          <div className="relative mb-3 rounded px-3 py-2.5">
+            <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
+              className="absolute inset-0 z-[-1] h-full w-full rounded" />
+            <div className="mb-1 flex justify-between">
+              <span className="font-family-ThaleahFat text-base text-gray-500">{pool.token1.symbol}</span>
+              <span className={`font-family-ThaleahFat text-base ${insufficientBalance1 ? "text-red-400" : "text-gray-500"}`}>
+                BAL: {balance1 !== null ? Number(balance1).toFixed(4) : "..."}
+              </span>
             </div>
-          )}
+            <div className="flex items-center gap-2">
+              <TokenIcon token={pool.token1} size={28} />
+              <input
+                type="text"
+                value={amount1}
+                onFocus={() => setInputFocused(1)}
+                onChange={e => updateAmount0FromAmount1(e.target.value.replace(/[^0-9.]/g, ""))}
+                placeholder="0.0"
+                className="font-family-ThaleahFat w-full flex-1 bg-transparent text-2xl tracking-wider text-white placeholder:text-gray-600 focus:outline-none"
+              />
+              {[{ l: "25%", v: 0.25 }, { l: "50%", v: 0.5 }, { l: "MAX", v: 1 }].map(p => (
+                <button key={p.l} onClick={() => setPercentage1(p.v)} className="font-family-ThaleahFat text-peach-500 border-ground-button-border bg-ground-button-border cursor-pointer rounded-sm border px-2 py-1 text-sm">
+                  {p.l}
+                </button>
+              ))}
+            </div>
+            {insufficientBalance1 && (
+              <div className="mt-1 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3 text-red-400" />
+                <span className="font-family-ThaleahFat text-xs text-red-400">INSUFFICIENT {pool.token1.symbol} BALANCE</span>
+              </div>
+            )}
+          </div>
 
           {/* Info rows */}
           <div className="relative mb-3 rounded px-3 py-2">
             <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
               className="absolute inset-0 z-[-1] h-full w-full rounded" />
             {[
-              ["FEE APY", `${pool.feeApy}%`, "text-[#6DBB3E]"],
+              ["PRICE", `1 ${pool.token0.symbol} = ${pool.price > 0 ? pool.price.toFixed(4) : "N/A"} ${pool.token1.symbol}`, "text-peach-300"],
               ["FEE TIER", `${(pool.fee / 10000).toFixed(2)}%`, "text-peach-300"],
-              ["POOL TVL", `$${fmt(pool.tvl)}`, "text-peach-300"],
-              ["SOURCE CHAIN", pool.token0.sourceChain, ""],
+              ["RANGE", "FULL RANGE", "text-gray-400"],
+              ["SLIPPAGE", "0.5%", "text-gray-400"],
               ["ON-CHAIN", pool.active ? "LIVE ✓" : "NO LIQUIDITY", pool.active ? "text-[#6DBB3E]" : "text-red-400"],
             ].map(([k, v, c]) => (
               <div key={k} className="flex justify-between py-0.5">
@@ -737,11 +969,15 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
           </div>
 
           <button
-            onClick={handleAction}
-            disabled={loading || !amount}
-            className="font-family-ThaleahFat w-full cursor-pointer rounded-lg bg-[#6DBB3E] px-6 py-3 text-xl tracking-wider text-white shadow-[0px_-4px_0px_0px_#4A8B29_inset,0px_4px_0px_0px_rgba(255,255,255,0.3)_inset] transition-all hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={handleAddLiquidity}
+            disabled={!canSubmit}
+            className={`font-family-ThaleahFat w-full cursor-pointer rounded-lg px-6 py-3 text-xl tracking-wider transition-all hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50 ${
+              hasInsufficientBalance
+                ? "bg-red-600 text-white shadow-[0px_-4px_0px_0px_#991B1B_inset]"
+                : "bg-[#6DBB3E] text-white shadow-[0px_-4px_0px_0px_#4A8B29_inset,0px_4px_0px_0px_rgba(255,255,255,0.3)_inset]"
+            }`}
           >
-            {loading ? (stepLabel || "PROCESSING...") : `${actionTab === "add" ? "ADD" : "REMOVE"} LIQUIDITY`}
+            {getButtonLabel()}
           </button>
         </div>
       )}
