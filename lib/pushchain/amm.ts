@@ -506,8 +506,9 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
     const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1800;
 
     const fee = params.fee || 500;
+    const spacing = TICK_SPACINGS[fee] || 10;
     let { tickLower, tickUpper } = params.tickLower != null && params.tickUpper != null
-      ? { tickLower: params.tickLower, tickUpper: params.tickUpper }
+      ? { tickLower: nearestUsableTick(params.tickLower, spacing), tickUpper: nearestUsableTick(params.tickUpper, spacing) }
       : getFullRangeTicks(fee);
 
     const needsWrap = isNative0 || isNative1;
