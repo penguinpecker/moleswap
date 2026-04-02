@@ -112,9 +112,11 @@ export default function DappPage() {
     <div className="relative flex min-h-screen w-full flex-col items-center gap-2 sm:gap-4">
       <BackgroundImage isLoading={isLoading} ref={lottieRef} />
 
-      <div className="relative z-50 mx-auto mt-2 flex w-full flex-col-reverse gap-2 px-2 sm:mt-4 sm:w-auto sm:flex-row sm:gap-6 sm:px-4 lg:w-auto">
-        <NavBar />
-        <div className="bg-peach-500 font-family-ThaleahFat relative flex w-full items-center justify-center rounded-lg border-3 border-[#523525] py-1 text-base font-medium tracking-wider text-black shadow-[0px_-6px_0px_0px_#C97E00_inset,0px_7.5px_0px_0px_rgba(255,212,122,0.6)_inset] sm:max-w-3xl sm:justify-between sm:py-0 sm:text-2xl">
+      <div className="relative z-50 mx-auto mt-2 flex w-full flex-col-reverse gap-2 px-2 sm:mt-4 sm:flex-row sm:items-center sm:gap-4 sm:px-4">
+        <div className="flex-1">
+          <NavBar />
+        </div>
+        <div className="bg-peach-500 font-family-ThaleahFat shrink-0 rounded-lg border-3 border-[#523525] px-3 py-2 text-base font-medium tracking-wider text-black shadow-[0px_-6px_0px_0px_#C97E00_inset,0px_7.5px_0px_0px_rgba(255,212,122,0.6)_inset] sm:py-3 sm:text-2xl">
           <ConnectWalletButton />
         </div>
       </div>
