@@ -57,7 +57,7 @@ export const NavBar = () => {
           </div>
 
           {/* Center logo */}
-          <Link href="/" className="-my-4">
+          <Link href="/" className="-my-4 mx-4 shrink-0 lg:mx-8">
             <Image
               src="/moleswap-logo.png"
               alt="MoleSwap"
