@@ -320,7 +320,7 @@ const PoolsContent = () => {
                   <div key={i} className="relative overflow-hidden rounded px-3 py-3 text-center">
                     <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
                       className="absolute inset-0 z-[-1] h-full w-full rounded" />
-                    <div className="text-lg">{s.icon}</div>
+                    <div className="mb-1 flex items-center justify-center">{s.icon}</div>
                     <div className="font-family-ThaleahFat text-sm tracking-wider text-gray-400 sm:text-base">{s.l}</div>
                     <div className="font-family-ThaleahFat text-peach-300 truncate text-lg sm:text-2xl">{s.v}</div>
                   </div>
@@ -491,13 +491,24 @@ interface EnrichedPosition extends LiquidityPosition {
 }
 
 // ═══ LIQUIDITY DISTRIBUTION GRAPH ═══
-const LiquidityGraph = ({ currentTick, tickLower, tickUpper, height = 80 }: {
+const LiquidityGraph = ({ currentTick, tickLower, tickUpper, height = 80, price, token0Symbol, token1Symbol }: {
   currentTick: number; tickLower: number; tickUpper: number; height?: number;
+  price?: number; token0Symbol?: string; token1Symbol?: string;
 }) => {
+  const [hovered, setHovered] = useState<number | null>(null);
   const bars = 24;
   const isFullRange = tickLower <= -887200 && tickUpper >= 887200;
   const currentPos = isFullRange ? 0.55 : Math.min(1, Math.max(0, (currentTick - tickLower) / (tickUpper - tickLower)));
   const peakIdx = Math.round(currentPos * (bars - 1));
+
+  const getBarData = (i: number) => {
+    const dist = Math.abs(i - peakIdx);
+    const h = Math.max(8, 100 - dist * (100 / bars) * 1.5);
+    const ratio = i / (bars - 1);
+    const barPrice = price ? price * (0.5 + ratio * 1.0) : 0;
+    const liq = h;
+    return { h, barPrice, liq, inRange: !isFullRange ? (i >= 1 && i <= bars - 2) : true };
+  };
 
   return (
     <div className="relative overflow-hidden rounded" style={{ height, background: "rgba(0,0,0,0.2)", border: "1px solid #3A1F0E" }}>
@@ -505,19 +516,35 @@ const LiquidityGraph = ({ currentTick, tickLower, tickUpper, height = 80 }: {
       {!isFullRange && <div style={{ position: "absolute", top: 0, bottom: 0, left: "5%", width: 1, borderLeft: "1px dashed #6B7280" }} />}
       {!isFullRange && <div style={{ position: "absolute", top: 0, bottom: 0, right: "5%", width: 1, borderRight: "1px dashed #6B7280" }} />}
       <div style={{ position: "absolute", top: 0, bottom: 0, left: `${5 + currentPos * 90}%`, width: 2, background: "#FFD47A", zIndex: 2, boxShadow: "0 0 6px #FFD47A" }} />
+
+      {hovered !== null && price && height > 50 && (() => {
+        const bd = getBarData(hovered);
+        const leftPct = (hovered / (bars - 1)) * 100;
+        return (
+          <div className="pointer-events-none absolute z-50 rounded border border-[#E8A849] bg-[#3A1F0E]/95 px-2.5 py-1.5 shadow-lg" style={{ bottom: "100%", left: `${Math.min(Math.max(leftPct, 15), 85)}%`, transform: "translateX(-50%) translateY(-4px)", whiteSpace: "nowrap" }}>
+            <div className="font-family-ThaleahFat text-xs text-[#FFD47A]">{bd.barPrice > 1000 ? fmt(bd.barPrice) : bd.barPrice.toFixed(2)} {token1Symbol || ""}</div>
+            <div className="font-family-ThaleahFat text-xs text-gray-400">LIQ: {bd.liq.toFixed(0)}%</div>
+            <div className="font-family-ThaleahFat text-xs text-[#6DBB3E]">{bd.inRange ? "IN RANGE" : "OUT OF RANGE"}</div>
+          </div>
+        );
+      })()}
+
       <div className="flex items-end gap-px px-1" style={{ height: "100%", padding: "4px 2px" }}>
         {Array.from({ length: bars }).map((_, i) => {
-          const dist = Math.abs(i - peakIdx);
-          const h = Math.max(8, 100 - dist * (100 / bars) * 1.5);
+          const bd = getBarData(i);
           const isCurrent = i === peakIdx;
+          const isHov = hovered === i;
           return (
-            <div key={i} style={{
-              flex: 1, borderRadius: "1px 1px 0 0", minHeight: 2,
-              height: `${h}%`,
-              background: isCurrent ? "#FFD47A" : "#6DBB3E",
-              opacity: isCurrent ? 1 : 0.5 + (h / 200),
-              boxShadow: isCurrent ? "0 0 6px #FFD47A" : "none",
-            }} />
+            <div key={i}
+              onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}
+              style={{
+                flex: 1, borderRadius: "1px 1px 0 0", minHeight: 2, cursor: "crosshair",
+                height: `${bd.h}%`,
+                background: isCurrent ? "#FFD47A" : isHov ? "#8FDB5E" : "#6DBB3E",
+                opacity: isCurrent ? 1 : isHov ? 0.9 : 0.5 + (bd.h / 200),
+                boxShadow: isCurrent ? "0 0 6px #FFD47A" : isHov ? "0 0 4px #6DBB3E" : "none",
+                transition: "opacity 0.1s, background 0.1s",
+              }} />
           );
         })}
       </div>
@@ -890,6 +917,9 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
   const [stepLabel, setStepLabel] = useState("");
   const [inputFocused, setInputFocused] = useState<0 | 1>(0);
   const [currentTick, setCurrentTick] = useState(0);
+  const [rangeMode, setRangeMode] = useState<"full" | "custom">("full");
+  const [minPrice, setMinPrice] = useState("");
+  const [maxPrice, setMaxPrice] = useState("");
 
   useEffect(() => {
     if (!address) return;
@@ -940,6 +970,13 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
   const hasInsufficientBalance = insufficientBalance0 || insufficientBalance1;
   const canSubmit = amount0 && amount1 && Number(amount0) > 0 && Number(amount1) > 0 && !hasInsufficientBalance && !loading;
 
+  const priceToTick = (p: number) => Math.round(Math.log(p) / Math.log(1.0001));
+  const tickSpacing = pool.fee === 500 ? 10 : pool.fee === 3000 ? 60 : pool.fee === 10000 ? 200 : 10;
+  const nearestTick = (t: number) => Math.round(t / tickSpacing) * tickSpacing;
+
+  const selectedTickLower = rangeMode === "full" ? -887272 : (minPrice && Number(minPrice) > 0 ? nearestTick(priceToTick(Number(minPrice))) : -887272);
+  const selectedTickUpper = rangeMode === "full" ? 887272 : (maxPrice && Number(maxPrice) > 0 ? nearestTick(priceToTick(Number(maxPrice))) : 887272);
+
   const handleAddLiquidity = async () => {
     if (!address || !canSubmit) return;
     setLoading(true); setTxError(null); setTxHash(null); setStepLabel("Preparing...");
@@ -950,6 +987,7 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
       const result = await addLiquidity({
         pushChainClient, token0: pool.pool.token0, token1: pool.pool.token1, fee: pool.fee,
         amount0Desired: amount0Wei, amount1Desired: amount1Wei, recipient: address,
+        tickLower: selectedTickLower, tickUpper: selectedTickUpper,
         onStep: (_step: any, label: string, status: string) => { setStepLabel(label); if (status === "error") setTxError(label); },
       });
       if (result.success) { setTxHash(result.txHash); setTxDone(true); setAmount0(""); setAmount1(""); }
@@ -1025,7 +1063,7 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
           <span className="font-family-ThaleahFat text-sm text-[#E8A849]">LIQUIDITY DISTRIBUTION</span>
           <span className="font-family-ThaleahFat text-peach-300 text-sm">1 {pool.token0.symbol} = {priceStr} {pool.token1.symbol}</span>
         </div>
-        <LiquidityGraph currentTick={currentTick} tickLower={-887272} tickUpper={887272} height={80} />
+        <LiquidityGraph currentTick={currentTick} tickLower={-887272} tickUpper={887272} height={80} price={pool.price} token0Symbol={pool.token0.symbol} token1Symbol={pool.token1.symbol} />
         <div className="mt-1.5 flex justify-between">
           <span className="font-family-ThaleahFat text-xs text-gray-600">MIN: 0</span>
           <span className="font-family-ThaleahFat text-xs text-[#6DBB3E]">● IN RANGE — FULL</span>
@@ -1117,14 +1155,47 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
               {insufficientBalance1 && <div className="mt-1 flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-red-400" /><span className="font-family-ThaleahFat text-xs text-red-400">INSUFFICIENT {pool.token1.symbol} BALANCE</span></div>}
             </div>
 
-            {/* Mini range preview */}
-            <div className="relative mb-3 rounded px-3 py-2">
+            {/* Range selector */}
+            <div className="relative mb-3 rounded px-3 py-2.5">
               <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+              <div className="mb-2 flex items-center justify-between">
+                <span className="font-family-ThaleahFat text-base text-gray-500">SELECT RANGE</span>
+              </div>
+              <div className="mb-3 grid grid-cols-2 gap-2">
+                <button onClick={() => { setRangeMode("full"); setMinPrice(""); setMaxPrice(""); }}
+                  className={`font-family-ThaleahFat cursor-pointer rounded-lg border-2 px-3 py-2 text-center text-sm tracking-wider transition-all ${
+                    rangeMode === "full" ? "border-[#6DBB3E] bg-[#6DBB3E]/10 text-[#6DBB3E]" : "border-[#3A1F0E] text-gray-500 hover:text-gray-300"
+                  }`}>FULL RANGE</button>
+                <button onClick={() => setRangeMode("custom")}
+                  className={`font-family-ThaleahFat cursor-pointer rounded-lg border-2 px-3 py-2 text-center text-sm tracking-wider transition-all ${
+                    rangeMode === "custom" ? "border-[#FFD47A] bg-[#FFD47A]/10 text-[#FFD47A]" : "border-[#3A1F0E] text-gray-500 hover:text-gray-300"
+                  }`}>CUSTOM RANGE</button>
+              </div>
+
+              {rangeMode === "custom" && (
+                <div className="mb-2 grid grid-cols-2 gap-2">
+                  <div className="rounded border-2 border-[#3A1F0E] bg-black/20 px-3 py-2">
+                    <div className="font-family-ThaleahFat mb-1 text-xs text-gray-500">MIN PRICE</div>
+                    <input type="text" value={minPrice} onChange={e => setMinPrice(e.target.value.replace(/[^0-9.]/g, ""))}
+                      placeholder="0" className="font-family-ThaleahFat w-full bg-transparent text-lg text-[#FFD47A] placeholder:text-gray-600 focus:outline-none" />
+                    <div className="font-family-ThaleahFat text-xs text-gray-600">{pool.token1.symbol} per {pool.token0.symbol}</div>
+                  </div>
+                  <div className="rounded border-2 border-[#3A1F0E] bg-black/20 px-3 py-2">
+                    <div className="font-family-ThaleahFat mb-1 text-xs text-gray-500">MAX PRICE</div>
+                    <input type="text" value={maxPrice} onChange={e => setMaxPrice(e.target.value.replace(/[^0-9.]/g, ""))}
+                      placeholder="∞" className="font-family-ThaleahFat w-full bg-transparent text-lg text-[#FFD47A] placeholder:text-gray-600 focus:outline-none" />
+                    <div className="font-family-ThaleahFat text-xs text-gray-600">{pool.token1.symbol} per {pool.token0.symbol}</div>
+                  </div>
+                </div>
+              )}
+
               <div className="mb-1.5 flex justify-between">
                 <span className="font-family-ThaleahFat text-sm text-[#E8A849]">YOUR RANGE</span>
-                <span className="font-family-ThaleahFat text-sm text-[#6DBB3E]">● FULL RANGE</span>
+                <span className={`font-family-ThaleahFat text-sm ${rangeMode === "full" ? "text-[#6DBB3E]" : "text-[#FFD47A]"}`}>
+                  {rangeMode === "full" ? "● FULL RANGE" : "◆ CUSTOM"}
+                </span>
               </div>
-              <LiquidityGraph currentTick={currentTick} tickLower={-887272} tickUpper={887272} height={36} />
+              <LiquidityGraph currentTick={currentTick} tickLower={selectedTickLower} tickUpper={selectedTickUpper} height={36} price={pool.price} token0Symbol={pool.token0.symbol} token1Symbol={pool.token1.symbol} />
             </div>
 
             {/* Info rows */}
@@ -1133,7 +1204,7 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
               {[
                 ["PRICE", `1 ${pool.token0.symbol} = ${pool.price > 0 ? pool.price.toFixed(4) : "N/A"} ${pool.token1.symbol}`, "text-peach-300"],
                 ["FEE TIER", `${(pool.fee / 10000).toFixed(2)}%`, "text-peach-300"],
-                ["RANGE", "FULL RANGE", "text-[#6DBB3E]"],
+                ["RANGE", rangeMode === "full" ? "FULL RANGE" : `${minPrice || "0"} — ${maxPrice || "∞"} ${pool.token1.symbol}`, rangeMode === "full" ? "text-[#6DBB3E]" : "text-[#FFD47A]"],
                 ["SLIPPAGE", "0.5%", "text-gray-400"],
                 ["ON-CHAIN", pool.active ? "LIVE ✓" : "NO LIQUIDITY", pool.active ? "text-[#6DBB3E]" : "text-red-400"],
               ].map(([k, v, c]) => (
