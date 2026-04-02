@@ -25,15 +25,13 @@ export const NavBar = () => {
       <div className="bg-ground font-family-ThaleahFat relative flex w-full items-center justify-center rounded-lg border-3 border-[#523525] px-4 py-2 text-base font-medium tracking-wider text-white shadow-[0px_-6px_0px_0px_#523525_inset,0px_7.5px_0px_0px_rgba(255,255,255,0.6)_inset] sm:text-lg md:px-12 lg:max-w-5xl lg:justify-between lg:py-3 lg:text-2xl">
         {/* Mobile: logo left, hamburger right */}
         <div className="flex w-full items-center justify-between lg:hidden">
-          <div className="border-ground h-12 w-12 shrink-0 overflow-hidden rounded-full border-3 bg-white shadow-[3px_3px_0_#000] sm:h-16 sm:w-16 sm:border-4">
-            <Image
-              src="/moleswap-logo.png"
-              alt="MoleSwap"
-              width={64}
-              height={64}
-              className="h-full w-full object-cover"
-            />
-          </div>
+          <Image
+            src="/moleswap-logo.png"
+            alt="MoleSwap"
+            width={64}
+            height={64}
+            className="h-12 w-12 shrink-0 rounded-full object-cover sm:h-16 sm:w-16"
+          />
           <button
             onClick={toggleMenu}
             className="shrink-0 cursor-pointer text-white transition-transform hover:scale-110"
@@ -60,15 +58,13 @@ export const NavBar = () => {
 
           {/* Center logo */}
           <Link href="/" className="-my-4">
-            <div className="border-ground h-16 w-16 overflow-hidden rounded-full border-4 bg-white shadow-[4px_4px_0_#000]">
-              <Image
-                src="/moleswap-logo.png"
-                alt="MoleSwap"
-                width={64}
-                height={64}
-                className="h-full w-full object-cover"
-              />
-            </div>
+            <Image
+              src="/moleswap-logo.png"
+              alt="MoleSwap"
+              width={64}
+              height={64}
+              className="h-16 w-16 rounded-full object-cover"
+            />
           </Link>
 
           {/* Right menu */}
