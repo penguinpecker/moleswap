@@ -27,8 +27,8 @@ export const NavBar = () => {
         <div className="flex w-full items-center justify-between lg:hidden">
           <div className="border-ground h-12 w-12 shrink-0 overflow-hidden rounded-full border-3 bg-white shadow-[3px_3px_0_#000] sm:h-16 sm:w-16 sm:border-4">
             <Image
-              src="/profile/profile-logo.png"
-              alt="Avatar"
+              src="/moleswap-logo.png"
+              alt="MoleSwap"
               width={64}
               height={64}
               className="h-full w-full object-cover"
@@ -57,6 +57,19 @@ export const NavBar = () => {
               POOLS
             </Link>
           </div>
+
+          {/* Center logo */}
+          <Link href="/" className="-my-4">
+            <div className="border-ground h-16 w-16 overflow-hidden rounded-full border-4 bg-white shadow-[4px_4px_0_#000]">
+              <Image
+                src="/moleswap-logo.png"
+                alt="MoleSwap"
+                width={64}
+                height={64}
+                className="h-full w-full object-cover"
+              />
+            </div>
+          </Link>
 
           {/* Right menu */}
           <div className="flex gap-4 md:gap-12">
