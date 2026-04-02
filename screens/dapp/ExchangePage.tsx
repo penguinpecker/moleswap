@@ -70,14 +70,8 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   const [showSettings, setShowSettings] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
 
-  // Swap history: read from sessionStorage for persistence during tab session
-  const [swapHistory, setSwapHistory] = useState<any[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const stored = window.sessionStorage?.getItem("moleswap_history");
-      return stored ? JSON.parse(stored) : [];
-    } catch { return []; }
-  });
+  // Swap history: loaded from Supabase when wallet connects
+  const [swapHistory, setSwapHistory] = useState<any[]>([]);
   // ----- Load chains (kept) -----
   useEffect(() => {
     setLoadingChains(true);
@@ -103,13 +97,19 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
 
   // Sync wallet address from PushChain context
   useEffect(() => {
-    if (pushWallet.isConnected && pushWallet.address && !walletAddress) {
+    if (pushWallet.isConnected && pushWallet.address) {
+      if (pushWallet.address !== walletAddress) {
+        setSwapHistory([]);
+        try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}
+      }
       setWalletAddress(pushWallet.address);
       setRecipientAddress(pushWallet.address);
     }
     if (!pushWallet.isConnected && walletAddress) {
       setWalletAddress(null);
       setRecipientAddress(null);
+      setSwapHistory([]);
+      try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}
     }
   }, [pushWallet.isConnected, pushWallet.address]);
 
@@ -137,18 +137,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
             toLogo: toInfo?.logoURI || "/placeholder-logo.png",
           };
         });
-        setSwapHistory((prev: any[]) => {
-          const existing = new Set(prev.map((s: any) => s.txHash).filter(Boolean));
-          const merged = [...prev];
-          for (const item of mapped) {
-            if (item.txHash && !existing.has(item.txHash)) {
-              merged.push(item);
-              existing.add(item.txHash);
-            }
-          }
-          merged.sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-          return merged;
-        });
+        setSwapHistory(mapped);
       } catch (e) {
         console.warn("[MoleSwap] Failed to load swap history from DB:", e);
       }
