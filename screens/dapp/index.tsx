@@ -126,10 +126,10 @@ export default function DappPage() {
         alt="Profile"
         width={100}
         height={20}
-        className="z-10 mt-4 mb-[-40px] h-auto w-auto max-w-[80%] sm:mt-8 sm:mb-[-50px] sm:max-w-none"
+        className="z-10 mt-2 mb-[-30px] h-auto w-auto max-w-[90%] sm:mt-8 sm:mb-[-50px] sm:max-w-none"
       />
 
-      <div className="relative z-20 mb-[20%] flex w-full flex-1 items-center justify-center px-1 sm:mb-[8%] sm:px-0">
+      <div className="relative z-20 mb-[10%] flex w-full flex-1 items-center justify-center px-1 sm:mb-[8%] sm:px-0">
         {renderCurrentStep()}
       </div>
     </div>

@@ -122,8 +122,8 @@ export const QuestCardComponent = () => {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-2 sm:px-6">
       {/* Header */}
-      <div className="relative top-[40px] z-10 mx-auto w-[75%] rounded-lg px-6 py-4 text-center">
-        <h1 className="text-peach-300 text-shadow-header font-family-ThaleahFat text-3xl font-bold tracking-widest uppercase sm:text-5xl">
+      <div className="relative top-[40px] z-10 mx-auto w-[85%] rounded-lg px-4 py-3 text-center sm:w-[75%] sm:px-6 sm:py-4">
+        <h1 className="text-peach-300 text-shadow-header font-family-ThaleahFat text-2xl font-bold tracking-widest uppercase sm:text-5xl">
           leaderboard
         </h1>
         <Image
@@ -136,7 +136,7 @@ export const QuestCardComponent = () => {
       </div>
 
       {/* Main Leaderboard Section */}
-      <div className="relative mb-6 flex h-full px-4">
+      <div className="relative mb-6 flex h-full px-1 sm:px-4">
         <Image
           src="/leaderboard/list-board.png"
           alt="Profile"
@@ -145,7 +145,7 @@ export const QuestCardComponent = () => {
           className="absolute inset-0 z-0 h-full w-full object-fill"
         />
         {/* Leaderboard List */}
-        <div className="bg-leaderboard relative m-6 mx-auto flex w-full flex-1 flex-col items-center gap-2 p-4 pt-8">
+        <div className="bg-leaderboard relative m-2 mx-auto flex w-full flex-1 flex-col items-center gap-2 p-2 pt-6 sm:m-6 sm:gap-2 sm:p-4 sm:pt-8">
           {players.map((player, index) => {
             // Determine background based on rank
             const bgImage =
@@ -160,7 +160,7 @@ export const QuestCardComponent = () => {
             return (
               <div
                 key={player.id}
-                className="relative flex w-full max-w-3xl justify-between px-4 py-3 text-white shadow-md max-sm:flex-col sm:items-center"
+                className="relative flex w-full max-w-3xl justify-between px-2 py-2 text-white shadow-md max-sm:flex-col sm:items-center sm:px-4 sm:py-3"
               >
                 <Image
                   src={bgImage}
@@ -183,7 +183,7 @@ export const QuestCardComponent = () => {
                       />
                     </div>
                   ) : (
-                    <div className="font-family-ThaleahFat text-leaderboard-rank relative flex h-[40px] w-[40px] items-center justify-center text-2xl">
+                    <div className="font-family-ThaleahFat text-leaderboard-rank relative flex h-[28px] w-[28px] items-center justify-center text-base sm:h-[40px] sm:w-[40px] sm:text-2xl">
                       {index + 1}
                       <Image
                         src="/leaderboard/rest.png"
@@ -194,15 +194,15 @@ export const QuestCardComponent = () => {
                     </div>
                   )}
                   <div className="flex flex-col">
-                    <span className="font-family-ThaleahFat text-2xl leading-7">
+                    <span className="font-family-ThaleahFat text-base leading-5 sm:text-2xl sm:leading-7">
                       {player.name}
                     </span>
-                    <span className="font-family-ThaleahFat text-xl sm:hidden">
+                    <span className="font-family-ThaleahFat text-sm text-[#FFD47A] sm:hidden">
                       {player.score}
                     </span>
                     <Link
                       href={"#"}
-                      className="text-leaderboard-text font-mono text-sm break-all"
+                      className="text-leaderboard-text font-mono text-[10px] break-all sm:text-sm"
                     >
                       {player.address}{" "}
                       <SquareArrowOutUpRight
@@ -214,11 +214,11 @@ export const QuestCardComponent = () => {
                 </div>
 
                 {/* Divider lines */}
-                <div className="bg-leaderboard before:bg-leaderboard relative mr-auto ml-6 h-full w-[4px] before:absolute before:top-0 before:left-0 before:h-[1px] before:w-full before:content-['']" />
-                <div className="bg-leaderboard before:bg-leaderboard relative mr-6 ml-auto h-full w-[4px] before:absolute before:top-0 before:left-0 before:h-[1px] before:w-full before:content-['']" />
+                <div className="bg-leaderboard before:bg-leaderboard relative mr-auto ml-6 hidden h-full w-[4px] before:absolute before:top-0 before:left-0 before:h-[1px] before:w-full before:content-[''] sm:block" />
+                <div className="bg-leaderboard before:bg-leaderboard relative mr-6 ml-auto hidden h-full w-[4px] before:absolute before:top-0 before:left-0 before:h-[1px] before:w-full before:content-[''] sm:block" />
 
                 {/* Right side */}
-                <span className="font-family-ThaleahFat z-10 text-3xl max-sm:hidden">
+                <span className="font-family-ThaleahFat z-10 text-xl max-sm:hidden sm:text-3xl">
                   {player.score}
                 </span>
               </div>

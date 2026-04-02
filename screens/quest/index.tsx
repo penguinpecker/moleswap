@@ -123,7 +123,7 @@ const BackgroundImage = () => {
         alt="Profile"
         width={200}
         height={200}
-        className="fixed bottom-[35vh] z-10 h-full max-h-[20vh] w-full max-lg:object-cover"
+        className="fixed bottom-[32vh] z-10 h-full max-h-[15vh] w-full object-cover sm:bottom-[35vh] sm:max-h-[20vh]"
       />
       {/*   BRICK */}
       <Image
@@ -131,7 +131,7 @@ const BackgroundImage = () => {
         alt="Profile"
         width={200}
         height={200}
-        className="fixed bottom-0 h-full max-h-[50vh] w-full object-cover"
+        className="fixed bottom-0 h-full max-h-[45vh] w-full object-cover sm:max-h-[50vh]"
       />
     </>
   );
@@ -228,16 +228,16 @@ export const QuestCardComponent = () => {
     console.log(`Quest clicked: ${questId}`);
   };
   const tabClass = (tab: string) =>
-    `font-family-ThaleahFat text-shadow-black px-4 rounded-full text-xl sm:text-3xl transition-colors duration-150 cursor-pointer ${
+    `font-family-ThaleahFat text-shadow-black px-2 rounded-full text-sm sm:px-4 sm:text-3xl transition-colors duration-150 cursor-pointer ${
       activeTab === tab
         ? "bg-ground-button border-4 border-ground-button-border text-peach-400"
         : "text-gray-400 hover:text-yellow-200"
     }`;
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-2 sm:p-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-1 sm:px-2 md:p-6">
       {/* Header */}
-      <div className="relative top-[40px] z-10 mx-auto w-[75%] rounded-lg px-6 py-4 text-center">
-        <h1 className="text-peach-300 text-shadow-header font-family-ThaleahFat text-3xl font-bold tracking-widest uppercase sm:text-5xl">
+      <div className="relative top-[40px] z-10 mx-auto w-[85%] rounded-lg px-4 py-3 text-center sm:w-[75%] sm:px-6 sm:py-4">
+        <h1 className="text-peach-300 text-shadow-header font-family-ThaleahFat text-2xl font-bold tracking-widest uppercase sm:text-5xl">
           Quests
         </h1>
         <Image
@@ -280,7 +280,7 @@ export const QuestCardComponent = () => {
         </div>
 
         {/* Quest Grid */}
-        <div className="relative mb-6 grid grid-cols-1 gap-4 p-4 md:grid-cols-2">
+        <div className="relative mb-6 grid grid-cols-1 gap-2 p-2 sm:gap-4 sm:p-4 md:grid-cols-2">
           {currentQuests.map((quest: any) => (
             <div key={quest.id} className="group relative cursor-pointer" onClick={() => handleQuestClick(quest.id)}>
               <Image
@@ -333,7 +333,7 @@ export const QuestCardComponent = () => {
         </div>
 
         {/* Pagination */}
-        <div className="z-30 mb-4 flex flex-col items-center justify-center gap-4">
+        <div className="z-30 mb-4 flex flex-col items-center justify-center gap-2 sm:gap-4">
           <span className="text-peach-400 bg-ground-button z-40 rounded px-3 py-1 text-lg font-bold tracking-wider">
             {currentPage} of {totalPages}
           </span>

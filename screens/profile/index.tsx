@@ -13,14 +13,14 @@ const ProfilePage = () => {
     <div className="relative flex min-h-screen w-full flex-col items-center gap-2 sm:gap-4">
       <BackgroundImage />
 
-      <div className="absolute top-0 left-1/2 z-20 flex h-28 w-full -translate-x-1/2 transform items-center justify-center gap-8 overflow-visible sm:h-40 sm:gap-16">
+      <div className="absolute top-0 left-1/2 z-20 flex h-20 w-full -translate-x-1/2 transform items-center justify-center gap-4 overflow-visible sm:h-40 sm:gap-16">
         {/* Left Cloud */}
         <Image
           src="/profile/Chain.png"
           alt="Cloud Left"
           width={44}
           height={44}
-          className="animate-cloud-left h-full max-h-28 sm:max-h-full"
+          className="animate-cloud-left h-full max-h-20 sm:max-h-28 md:max-h-full"
         />
 
         {/* Right Cloud */}
@@ -45,7 +45,7 @@ const ProfilePage = () => {
       <div className="relative z-50 mx-auto mt-2 block w-full px-2 sm:mt-4 sm:px-4">
         <NavBar />
       </div>
-      <div className="relative z-20 mt-20 mb-4 w-full px-2 sm:mx-auto sm:mt-32 sm:mb-16 sm:w-auto sm:px-0">
+      <div className="relative z-20 mt-12 mb-4 w-full px-2 sm:mx-auto sm:mt-32 sm:mb-16 sm:w-auto sm:px-0">
         <ProfileCard />
       </div>
     </div>
@@ -87,7 +87,7 @@ const BackgroundImage = () => {
         alt="Profile"
         width={200}
         height={200}
-        className="fixed bottom-[44vh] z-10 h-full max-h-[35vh] w-full max-lg:object-cover"
+        className="fixed bottom-[40vh] z-10 h-full max-h-[30vh] w-full object-cover sm:bottom-[44vh] sm:max-h-[35vh]"
       />
       {/*   BRICK */}
       <Image
@@ -95,7 +95,7 @@ const BackgroundImage = () => {
         alt="Profile"
         width={200}
         height={200}
-        className="fixed bottom-0 h-full max-h-[57vh] w-full object-cover"
+        className="fixed bottom-0 h-full max-h-[55vh] w-full object-cover sm:max-h-[57vh]"
       />
     </>
   );
@@ -129,7 +129,7 @@ const ProfileCard = () => {
   const displayBestRank = rank?.best_rank ? `#${rank.best_rank}` : (profile?.best_rank ? `#${profile.best_rank}` : "—");
 
   return (
-    <div className="relative flex w-full flex-col items-center p-2 pt-12 sm:w-[500px] sm:p-12 sm:pt-28">
+    <div className="relative flex w-full flex-col items-center p-3 pt-8 sm:w-[500px] sm:p-12 sm:pt-28">
       <Image
         src="/profile/frame-bg.svg"
         alt="Frame"
@@ -207,7 +207,7 @@ const ProfileCard = () => {
         </div>
         {/* Leaderboard Rank */}
         <div className="mb-2 w-full p-1.5 text-center sm:p-3">
-          <div className="text-peach-300 font-family-ThaleahFat mb-1 text-left text-sm sm:text-3xl">
+          <div className="text-peach-300 font-family-ThaleahFat mb-1 text-left text-base sm:text-3xl">
             LEADERBOARD RANK:
           </div>
           <div className="relative flex w-full flex-col items-stretch gap-2 rounded-lg sm:flex-row sm:items-center sm:justify-between sm:gap-4">

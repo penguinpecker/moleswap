@@ -310,7 +310,7 @@ const PoolsContent = () => {
             <PoolDetail pool={selectedPool} onBack={() => setSelectedPool(null)} address={address} isConnected={isConnected} walletCtx={walletCtx} pushChainClient={pushChainClient} />
           ) : tab === "markets" ? (
             <>
-              <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-5 sm:grid-cols-4 sm:gap-3">
+              <div className="mb-4 grid grid-cols-2 gap-1.5 sm:mb-5 sm:grid-cols-4 sm:gap-3">
                 {[
                   { l: "TOTAL VALUE LOCKED", v: loading ? "..." : `$${fmt(totalTvl)}`, icon: <svg width="28" height="28" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style={{imageRendering:"pixelated"}}><rect x="2" y="7" width="12" height="7" fill="#8B5E3C"/><rect x="2" y="7" width="12" height="1" fill="#A0704A"/><rect x="2" y="13" width="12" height="1" fill="#5D3A1F"/><rect x="2" y="4" width="12" height="4" fill="#A0704A"/><rect x="2" y="4" width="12" height="1" fill="#C49A6C"/><rect x="3" y="5" width="10" height="1" fill="#B8896A"/><rect x="1" y="7" width="14" height="1" fill="#E8A849"/><rect x="1" y="4" width="14" height="1" fill="#E8A849"/><rect x="7" y="6" width="2" height="3" fill="#FFD47A"/><rect x="7" y="5" width="2" height="1" fill="#E8A849"/><rect x="4" y="3" width="2" height="2" fill="#FFD47A"/><rect x="5" y="3" width="1" height="1" fill="#FFF3B0"/><rect x="9" y="2" width="2" height="2" fill="#FFD47A"/><rect x="10" y="2" width="1" height="1" fill="#FFF3B0"/><rect x="7" y="2" width="2" height="2" fill="#E8A849"/><rect x="8" y="2" width="1" height="1" fill="#FFD47A"/></svg> },
                   { l: "24H VOLUME (EST)", v: loading ? "..." : `$${fmt(totalVol)}`, icon: <svg width="28" height="28" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" style={{imageRendering:"pixelated"}}><rect x="2" y="9" width="2" height="5" fill="#E8A849"/><rect x="2" y="9" width="2" height="1" fill="#FFD47A"/><rect x="5" y="5" width="2" height="9" fill="#FFD47A"/><rect x="5" y="5" width="2" height="1" fill="#FFF3B0"/><rect x="8" y="7" width="2" height="7" fill="#E8A849"/><rect x="8" y="7" width="2" height="1" fill="#FFD47A"/><rect x="11" y="3" width="2" height="11" fill="#FFD47A"/><rect x="11" y="3" width="2" height="1" fill="#FFF3B0"/><rect x="1" y="14" width="14" height="1" fill="#C49A6C"/><rect x="13" y="1" width="1" height="1" fill="#7FE87F"/><rect x="12" y="2" width="1" height="1" fill="#7FE87F"/><rect x="14" y="2" width="1" height="1" fill="#7FE87F"/></svg> },
@@ -327,7 +327,7 @@ const PoolsContent = () => {
                 ))}
               </div>
 
-              <div className="no-scrollbar mb-4 flex gap-2 overflow-x-auto pb-1">
+              <div className="no-scrollbar mb-3 flex gap-1.5 overflow-x-auto pb-1 sm:mb-4 sm:gap-2">
                 {chains.map(ch => (
                   <button
                     key={ch}

@@ -30,7 +30,7 @@ export const NavBar = () => {
             alt="MoleSwap"
             width={64}
             height={64}
-            className="h-12 w-12 shrink-0 rounded-full object-cover sm:h-16 sm:w-16"
+            className="h-10 w-10 shrink-0 rounded-full object-cover sm:h-16 sm:w-16"
           />
           <button
             onClick={toggleMenu}
