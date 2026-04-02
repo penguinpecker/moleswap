@@ -28,8 +28,8 @@ export interface TokenInfo {
 
 export const TOKENS: TokenInfo[] = [
   // Native / Wrapped
-  { address: "0x0000000000000000000000000000000000000000", symbol: "PC", name: "Push Chain", decimals: 18, sourceChain: "Push Chain", logoURI: "/profile/profile-logo.png", swappable: true },
-  { address: CONTRACTS.WPC, symbol: "WPC", name: "Wrapped Push Chain", decimals: 18, sourceChain: "Push Chain", logoURI: "/profile/profile-logo.png", swappable: true },
+  { address: "0x0000000000000000000000000000000000000000", symbol: "PC", name: "Push Chain", decimals: 18, sourceChain: "Push Chain", logoURI: "/push-chain-logo.png", swappable: true },
+  { address: CONTRACTS.WPC, symbol: "WPC", name: "Wrapped Push Chain", decimals: 18, sourceChain: "Push Chain", logoURI: "/push-chain-logo.png", swappable: true },
 
   // Ethereum Sepolia
   { address: "0x2971824Db68229D087931155C2b8bB820B275809", symbol: "pETH", name: "pETH", decimals: 18, sourceChain: "Ethereum", logoURI: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", swappable: true },

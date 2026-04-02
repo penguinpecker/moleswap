@@ -38,8 +38,8 @@ export async function getChains(): Promise<RelayChain[]> {
       id: PUSHCHAIN_CHAIN_ID,
       name: "Push Chain",
       displayName: "Push Chain (Donut Testnet)",
-      iconUrl: "https://push.org/assets/website/segments/PushLogoBlack@3x.png",
-      logoUrl: "https://push.org/assets/website/segments/PushLogoBlack@3x.png",
+      iconUrl: "/push-chain-logo.png",
+      logoUrl: "/push-chain-logo.png",
       vmType: "evm",
       currency: {
         id: "pc",
