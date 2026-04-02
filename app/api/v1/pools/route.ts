@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
 
     return apiResponse({
       count: pools.length,
-      chainId: 2442,
+      chainId: 42101,
       rpc: PUSHCHAIN_RPC,
       pools,
     });

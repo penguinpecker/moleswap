@@ -13,6 +13,9 @@ export const CONTRACTS = {
   TICK_LENS: "0xb64113Fc16055AfE606f25658812EE245Aa41dDC",
   MULTICALL: "0xa8c00017955c8654bfFbb6d5179c99f5aB8B7849",
   WPC: "0xE17DD2E0509f99E9ee9469Cf6634048Ec5a3ADe9", // Wrapped Push Chain (like WETH)
+  // ═══ MOLESWAP CUSTOM CONTRACTS ═══
+  MOLESWAP_FEE_ROUTER: "0x2845d303d9C367bF9ad555b0de81945E02861adD",
+  MOLESWAP_LIQUIDITY_PROXY: "0xE41F22796C076157688047ACBe9665CDE740A98e",
 } as const;
 
 // ═══ PRC-20 TOKENS ON PUSH CHAIN ═══
@@ -142,6 +145,27 @@ export const POSITION_MANAGER_ABI = [
   "function sweepToken(address token, uint256 amountMinimum, address recipient) external payable",
   // Refund leftover ETH
   "function refundETH() external payable",
+  // Operator approval for proxy contracts
+  "function setApprovalForAll(address operator, bool approved) external",
+  "function isApprovedForAll(address owner, address operator) view returns (bool)",
+] as const;
+
+// ═══ MoleSwap FeeRouter ABI ═══
+export const FEE_ROUTER_ABI = [
+  "function swapExactInputSingle(address tokenIn, address tokenOut, uint24 poolFee, uint256 amountIn, uint256 amountOutMinimum, uint256 deadline, uint160 sqrtPriceLimitX96) payable returns (uint256 amountOut)",
+  "function swapNativeOutput(address tokenIn, uint24 poolFee, uint256 amountIn, uint256 amountOutMinimum, uint256 deadline, uint160 sqrtPriceLimitX96) returns (uint256 amountOut)",
+  "function feeBps() view returns (uint256)",
+  "function treasury() view returns (address)",
+  "function owner() view returns (address)",
+] as const;
+
+// ═══ MoleSwap LiquidityProxy ABI ═══
+export const LIQUIDITY_PROXY_ABI = [
+  "function mint(tuple(address token0, address token1, uint24 fee, int24 tickLower, int24 tickUpper, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, uint256 deadline) p) returns (uint256 tokenId, uint128 liquidity, uint256 amount0, uint256 amount1)",
+  "function increaseLiquidity(tuple(uint256 tokenId, address token0, address token1, uint256 amount0Desired, uint256 amount1Desired, uint256 amount0Min, uint256 amount1Min, uint256 deadline) p) returns (uint128 liquidity, uint256 amount0, uint256 amount1)",
+  "function decreaseLiquidity(uint256 tokenId, uint128 liquidity, uint256 amount0Min, uint256 amount1Min, uint256 deadline) returns (uint256 amount0, uint256 amount1)",
+  "function collect(uint256 tokenId, uint128 amount0Max, uint128 amount1Max) returns (uint256 amount0, uint256 amount1)",
+  "function burn(uint256 tokenId)",
 ] as const;
 
 // ═══ WETH9 (WPC) ABI ═══
@@ -167,7 +191,7 @@ export const TICK_SPACINGS: Record<number, number> = {
 
 // ═══ HELPERS ═══
 export const PUSHCHAIN_RPC = "https://evm.donut.rpc.push.org/";
-export const PUSHCHAIN_CHAIN_ID = 2442;
+export const PUSHCHAIN_CHAIN_ID = 42101;
 export const PUSHCHAIN_EXPLORER = "https://donut.push.network";
 
 export function getTokenByAddress(address: string): TokenInfo | undefined {

@@ -320,7 +320,7 @@ export default function ApiDocsPage() {
               </p>
               <div className="docs-hero-pills">
                 <span className="docs-pill">Base URL: <code>{BASE}/api/v1</code></span>
-                <span className="docs-pill">Chain ID: <code>2442</code></span>
+                <span className="docs-pill">Chain ID: <code>42101</code></span>
                 <span className="docs-pill">PushChain Donut Testnet</span>
               </div>
             </div>
@@ -435,7 +435,7 @@ for tx in data["transactions"]:
         "value": int(tx["value"]),
         "data": tx["data"],
         "gas": 300000,
-        "chainId": 2442,
+        "chainId": 42101,
     }, private_key="YOUR_KEY")
     w3.eth.send_raw_transaction(signed.rawTransaction)` },
             ]} />
@@ -769,7 +769,7 @@ if (quote.data.type === "multi_hop") {
             <p>Launch your token on MoleSwap and make it instantly swappable against all 19 tokens in the ecosystem.</p>
 
             <StepList steps={[
-              { title: "Deploy your PRC-20 token", desc: "Deploy a standard ERC-20 token contract on PushChain Donut Testnet (RPC: https://evm.donut.rpc.push.org/, Chain ID: 2442)." },
+              { title: "Deploy your PRC-20 token", desc: "Deploy a standard ERC-20 token contract on PushChain Donut Testnet (RPC: https://evm.donut.rpc.push.org/, Chain ID: 42101)." },
               { title: "Call POST /api/v1/tx/create-pool", desc: "Pair your token with WPC. Set an initial price and seed amounts. The API returns all unsigned calldata needed." },
               { title: "Sign & send the transactions", desc: "Execute sequentially: createPool → initialize → wrap (if needed) → approve × 2 → mint. Wait for each to confirm on-chain." },
               { title: "Your token is now swappable!", desc: "Users can swap via the MoleSwap UI or directly through the API. Use GET /api/v1/quote for price feeds." },
@@ -903,7 +903,7 @@ mole.getExplorerUrl("0xTX_HASH");
           {/* ── CONTRACTS ── */}
           <section id="contracts" data-section>
             <h2>Contract Addresses</h2>
-            <p>All contracts are deployed on PushChain Donut Testnet (Chain ID: 2442).</p>
+            <p>All contracts are deployed on PushChain Donut Testnet (Chain ID: 42101).</p>
 
             <div className="docs-contracts-table">
               <table>
@@ -931,7 +931,7 @@ mole.getExplorerUrl("0xTX_HASH");
             <h3>Network Details</h3>
             <CodeTabs tabs={[
               { label: "Network Config", lang: "json", code: `{
-  "chainId": 2442,
+  "chainId": 42101,
   "chainName": "PushChain Donut Testnet",
   "rpcUrl": "https://evm.donut.rpc.push.org/",
   "explorer": "https://donut.push.network",

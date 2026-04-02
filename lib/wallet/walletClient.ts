@@ -50,7 +50,7 @@ function getRpcUrl(chainId: number): string | null {
     10: "https://optimism.llamarpc.com",
     137: "https://polygon.llamarpc.com",
     56: "https://bsc.llamarpc.com",
-    2442: "https://evm.donut.rpc.push.org/",
+    42101: "https://evm.donut.rpc.push.org/",
   };
   return rpcUrls[chainId] || null;
 }

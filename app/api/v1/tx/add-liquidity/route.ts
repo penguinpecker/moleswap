@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 import { apiResponse, apiError, withRateLimit, corsPreflightResponse } from "@/lib/api/helpers";
 import {
   CONTRACTS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
-  POSITION_MANAGER_ABI,
+  POSITION_MANAGER_ABI, LIQUIDITY_PROXY_ABI,
   TICK_SPACINGS, MIN_TICK, MAX_TICK,
   getTokenByAddress, findPool,
 } from "@/lib/pushchain/contracts";
@@ -99,10 +99,10 @@ export async function POST(req: NextRequest) {
       to: sorted0,
       value: "0",
       data: approveIface.encodeFunctionData("approve", [
-        CONTRACTS.POSITION_MANAGER,
+        CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
         MAX_UINT,
       ]),
-      description: `Approve token0 for PositionManager`,
+      description: `Approve token0 for MoleSwap LiquidityProxy`,
       note: "Can skip if allowance already sufficient",
     });
 
@@ -110,18 +110,18 @@ export async function POST(req: NextRequest) {
       to: sorted1,
       value: "0",
       data: approveIface.encodeFunctionData("approve", [
-        CONTRACTS.POSITION_MANAGER,
+        CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
         MAX_UINT,
       ]),
-      description: `Approve token1 for PositionManager`,
+      description: `Approve token1 for MoleSwap LiquidityProxy`,
       note: "Can skip if allowance already sufficient",
     });
 
-    const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
+    const proxyIface = new ethers.Interface(LIQUIDITY_PROXY_ABI);
     transactions.push({
-      to: CONTRACTS.POSITION_MANAGER,
+      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
       value: "0",
-      data: pmIface.encodeFunctionData("mint", [
+      data: proxyIface.encodeFunctionData("mint", [
         {
           token0: sorted0,
           token1: sorted1,
@@ -132,11 +132,10 @@ export async function POST(req: NextRequest) {
           amount1Desired: amt1,
           amount0Min: amt0Min,
           amount1Min: amt1Min,
-          recipient,
           deadline: txDeadline,
         },
       ]),
-      description: "Mint liquidity position NFT",
+      description: "Mint liquidity position via MoleSwap LiquidityProxy",
     });
 
     const pool = findPool(sorted0, sorted1);

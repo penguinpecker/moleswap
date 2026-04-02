@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 import { apiResponse, apiError, withRateLimit, corsPreflightResponse } from "@/lib/api/helpers";
 import {
   CONTRACTS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
-  SWAP_ROUTER_ABI, ERC20_ABI,
+  SWAP_ROUTER_ABI, ERC20_ABI, FEE_ROUTER_ABI,
   getTokenByAddress, findPool,
 } from "@/lib/pushchain/contracts";
 
@@ -118,32 +118,29 @@ export async function POST(req: NextRequest) {
       to: isNativeIn ? CONTRACTS.WPC : tokenIn,
       value: "0",
       data: approveIface.encodeFunctionData("approve", [
-        CONTRACTS.SWAP_ROUTER,
+        CONTRACTS.MOLESWAP_FEE_ROUTER,
         MAX_UINT,
       ]),
-      description: `Step ${isNativeIn ? 2 : 1}: Approve SwapRouter`,
+      description: `Step ${isNativeIn ? 2 : 1}: Approve MoleSwap FeeRouter`,
       note: "Can skip if allowance is already sufficient",
     });
 
-    const routerIface = new ethers.Interface(SWAP_ROUTER_ABI);
-    const swapCalldata = routerIface.encodeFunctionData("exactInputSingle", [
-      {
-        tokenIn: actualIn,
-        tokenOut: actualOut,
-        fee: poolFee,
-        recipient,
-        deadline: txDeadline,
-        amountIn: amountInBig,
-        amountOutMinimum: computedMinOut,
-        sqrtPriceLimitX96: 0,
-      },
+    const routerIface = new ethers.Interface(FEE_ROUTER_ABI);
+    const swapCalldata = routerIface.encodeFunctionData("swapExactInputSingle", [
+      actualIn,
+      actualOut,
+      poolFee,
+      amountInBig,
+      computedMinOut,
+      txDeadline,
+      0,
     ]);
 
     transactions.push({
-      to: CONTRACTS.SWAP_ROUTER,
+      to: CONTRACTS.MOLESWAP_FEE_ROUTER,
       value: "0",
       data: swapCalldata,
-      description: `Step ${isNativeIn ? 3 : 2}: exactInputSingle swap`,
+      description: `Step ${isNativeIn ? 3 : 2}: swapExactInputSingle via MoleSwap FeeRouter`,
     });
 
     return apiResponse({

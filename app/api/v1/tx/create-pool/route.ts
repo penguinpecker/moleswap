@@ -3,7 +3,7 @@ import { ethers } from "ethers";
 import { apiResponse, apiError, withRateLimit, corsPreflightResponse } from "@/lib/api/helpers";
 import {
   CONTRACTS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
-  POSITION_MANAGER_ABI, ERC20_ABI,
+  POSITION_MANAGER_ABI, LIQUIDITY_PROXY_ABI, ERC20_ABI,
   TICK_SPACINGS, MIN_TICK, MAX_TICK,
   getTokenByAddress,
 } from "@/lib/pushchain/contracts";
@@ -164,20 +164,20 @@ export async function POST(req: NextRequest) {
         to: token0,
         value: "0",
         data: approveIface.encodeFunctionData("approve", [
-          CONTRACTS.POSITION_MANAGER,
+          CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
           MAX_UINT,
         ]),
-        description: `Approve ${token0Info?.symbol || "token0"} for PositionManager`,
+        description: `Approve ${token0Info?.symbol || "token0"} for MoleSwap LiquidityProxy`,
       });
 
       transactions.push({
         to: token1,
         value: "0",
         data: approveIface.encodeFunctionData("approve", [
-          CONTRACTS.POSITION_MANAGER,
+          CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
           MAX_UINT,
         ]),
-        description: `Approve ${token1Info?.symbol || "token1"} for PositionManager`,
+        description: `Approve ${token1Info?.symbol || "token1"} for MoleSwap LiquidityProxy`,
       });
 
       const spacing = TICK_SPACINGS[fee] || 10;
@@ -195,11 +195,11 @@ export async function POST(req: NextRequest) {
       const amt0Min = (amt0 * BigInt(10000 - slippageBps)) / 10000n;
       const amt1Min = (amt1 * BigInt(10000 - slippageBps)) / 10000n;
 
-      const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
+      const proxyIface = new ethers.Interface(LIQUIDITY_PROXY_ABI);
       transactions.push({
-        to: CONTRACTS.POSITION_MANAGER,
+        to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
         value: "0",
-        data: pmIface.encodeFunctionData("mint", [
+        data: proxyIface.encodeFunctionData("mint", [
           {
             token0,
             token1,
@@ -210,11 +210,10 @@ export async function POST(req: NextRequest) {
             amount1Desired: amt1,
             amount0Min: amt0Min,
             amount1Min: amt1Min,
-            recipient,
             deadline: txDeadline,
           },
         ]),
-        description: "Mint liquidity position NFT",
+        description: "Mint liquidity position via MoleSwap LiquidityProxy",
       });
     }
 

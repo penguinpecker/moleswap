@@ -459,8 +459,8 @@ export const SwapPage = ({
           if (user?.id) {
             await recordSwap({
               userId: user.id,
-              fromChainId: swapData.fromChain?.id || 2442,
-              toChainId: swapData.toChain?.id || 2442,
+              fromChainId: swapData.fromChain?.id || 42101,
+              toChainId: swapData.toChain?.id || 42101,
               fromToken: swapData.fromToken || "",
               toToken: swapData.toToken || "",
               fromAmount: swapData.amount || "0",

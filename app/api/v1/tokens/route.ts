@@ -52,6 +52,8 @@ export async function GET(req: NextRequest) {
         quoterV2: CONTRACTS.QUOTER_V2,
         positionManager: CONTRACTS.POSITION_MANAGER,
         wpc: CONTRACTS.WPC,
+        moleswapFeeRouter: CONTRACTS.MOLESWAP_FEE_ROUTER,
+        moleswapLiquidityProxy: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
       },
     });
   } catch (err: any) {

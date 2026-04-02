@@ -6,7 +6,8 @@ import { ethers } from "ethers";
 import {
   CONTRACTS, TOKENS, POOLS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
   QUOTER_V2_ABI, SWAP_ROUTER_ABI, ERC20_ABI, POOL_ABI,
-  POSITION_MANAGER_ABI, WPC_ABI, TICK_SPACINGS, MIN_TICK, MAX_TICK,
+  POSITION_MANAGER_ABI, WPC_ABI, FEE_ROUTER_ABI, LIQUIDITY_PROXY_ABI,
+  TICK_SPACINGS, MIN_TICK, MAX_TICK,
   getTokenByAddress, findPool, getSwappableTokens,
   type TokenInfo, type PoolInfo,
 } from "./contracts";
@@ -305,7 +306,7 @@ export async function executeSwap(params: {
     try {
       const provider = getProvider();
       const tokenContract = new ethers.Contract(tokenToApprove, ERC20_ABI, provider);
-      const currentAllowance = await tokenContract.allowance(params.recipient, CONTRACTS.SWAP_ROUTER);
+      const currentAllowance = await tokenContract.allowance(params.recipient, CONTRACTS.MOLESWAP_FEE_ROUTER);
       needsApproval = currentAllowance < amountIn;
     } catch (e) {
       needsApproval = true;
@@ -315,7 +316,7 @@ export async function executeSwap(params: {
       onStep(1, "APPROVE TOKEN", "signing");
       const approveIface = new ethers.Interface(["function approve(address spender, uint256 amount) returns (bool)"]);
       const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
-      const approveData = approveIface.encodeFunctionData("approve", [CONTRACTS.SWAP_ROUTER, MAX_UINT]);
+      const approveData = approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, MAX_UINT]);
       
       await sendUniversalTx(params.pushChainClient, {
         to: tokenToApprove, value: BigInt(0), data: approveData,
@@ -326,7 +327,7 @@ export async function executeSwap(params: {
       for (let attempt = 0; attempt < 10; attempt++) {
         await new Promise(r => setTimeout(r, 3000));
         try {
-          const newAllowance = await tokenForPoll.allowance(params.recipient, CONTRACTS.SWAP_ROUTER);
+          const newAllowance = await tokenForPoll.allowance(params.recipient, CONTRACTS.MOLESWAP_FEE_ROUTER);
           if (newAllowance >= amountIn) break;
         } catch {}
         if (attempt === 9) console.warn("[MoleSwap] Approve may not have confirmed, proceeding anyway");
@@ -334,22 +335,21 @@ export async function executeSwap(params: {
     }
     onStep(1, "APPROVE TOKEN", "confirmed");
 
-    // ═══ STEP 3: Execute swap ═══
+    // ═══ STEP 3: Execute swap via MoleSwap FeeRouter ═══
     onStep(2, "SWAP TOKENS", "signing");
-    const iface = new ethers.Interface(SWAP_ROUTER_ABI);
-    const swapCalldata = iface.encodeFunctionData("exactInputSingle", [{
-      tokenIn: actualIn,
-      tokenOut: actualOut,
+    const iface = new ethers.Interface(FEE_ROUTER_ABI);
+    const swapCalldata = iface.encodeFunctionData("swapExactInputSingle", [
+      actualIn,
+      actualOut,
       fee,
-      recipient: params.recipient,
-      deadline,
       amountIn,
-      amountOutMinimum: amountOutMin,
-      sqrtPriceLimitX96: 0,
-    }]);
+      amountOutMin,
+      deadline,
+      0,
+    ]);
 
     const swapResult = await sendUniversalTx(params.pushChainClient, {
-      to: CONTRACTS.SWAP_ROUTER, value: BigInt(0), data: swapCalldata,
+      to: CONTRACTS.MOLESWAP_FEE_ROUTER, value: BigInt(0), data: swapCalldata,
     }, uOpts);
     const txHash = extractHash(swapResult);
 
@@ -374,7 +374,7 @@ export async function approveToken(
     const provider = new ethers.BrowserProvider((window as any).ethereum);
     const signer = await provider.getSigner();
     const token = new ethers.Contract(tokenAddress, ERC20_ABI, signer);
-    const tx = await token.approve(CONTRACTS.SWAP_ROUTER, BigInt(amountWei));
+    const tx = await token.approve(CONTRACTS.MOLESWAP_FEE_ROUTER, BigInt(amountWei));
     const receipt = await tx.wait();
     return receipt?.hash || tx.hash;
   } catch (err) {
@@ -528,39 +528,38 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
       onStep(0, "WRAP PC → WPC", "confirmed");
     }
 
-    // ═══ STEP 1: Approve token0 ═══
+    // ═══ STEP 1: Approve token0 to LiquidityProxy ═══
     onStep(1, `APPROVE ${token0.slice(0,6)}...`, "signing");
     const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
     const approveIface = new ethers.Interface(["function approve(address, uint256) returns (bool)"]);
 
     await sendUniversalTx(params.pushChainClient, {
-      to: token0, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.POSITION_MANAGER, MAX_UINT]),
+      to: token0, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, MAX_UINT]),
     }, uOpts);
     await new Promise(r => setTimeout(r, 5000));
     onStep(1, `APPROVE ${token0.slice(0,6)}...`, "confirmed");
 
-    // ═══ STEP 2: Approve token1 ═══
+    // ═══ STEP 2: Approve token1 to LiquidityProxy ═══
     onStep(2, `APPROVE ${token1.slice(0,6)}...`, "signing");
     await sendUniversalTx(params.pushChainClient, {
-      to: token1, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.POSITION_MANAGER, MAX_UINT]),
+      to: token1, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, MAX_UINT]),
     }, uOpts);
     await new Promise(r => setTimeout(r, 5000));
     onStep(2, `APPROVE ${token1.slice(0,6)}...`, "confirmed");
 
-    // ═══ STEP 3: Mint position ═══
+    // ═══ STEP 3: Mint position via LiquidityProxy ═══
     onStep(3, "MINT POSITION", "signing");
-    const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
-    const mintCalldata = pmIface.encodeFunctionData("mint", [{
+    const proxyIface = new ethers.Interface(LIQUIDITY_PROXY_ABI);
+    const mintCalldata = proxyIface.encodeFunctionData("mint", [{
       token0, token1, fee, tickLower, tickUpper,
       amount0Desired: amount0,
       amount1Desired: amount1,
       amount0Min, amount1Min,
-      recipient: params.recipient,
       deadline,
     }]);
 
     const mintResult = await sendUniversalTx(params.pushChainClient, {
-      to: CONTRACTS.POSITION_MANAGER, value: 0n, data: mintCalldata,
+      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: mintCalldata,
     }, uOpts);
     const txHash = extractHash(mintResult);
 
@@ -586,50 +585,59 @@ export async function removeLiquidity(params: RemoveLiquidityParams): Promise<{ 
     const amount1Min = BigInt(params.amount1Min || "0");
     const MAX_UINT128 = BigInt("340282366920938463463374607431768211455");
 
-    const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
+    // ═══ STEP 0: Ensure LiquidityProxy is approved as operator on PositionManager ═══
+    onStep(0, "CHECK PROXY APPROVAL", "signing");
+    const provider = getProvider();
+    const pm = new ethers.Contract(CONTRACTS.POSITION_MANAGER, POSITION_MANAGER_ABI, provider);
+    const isApproved = await pm.isApprovedForAll(params.recipient, CONTRACTS.MOLESWAP_LIQUIDITY_PROXY).catch(() => false);
 
-    // ═══ STEP 0: Decrease liquidity ═══
-    onStep(0, "DECREASE LIQUIDITY", "signing");
-    const decreaseCalldata = pmIface.encodeFunctionData("decreaseLiquidity", [{
-      tokenId: params.tokenId,
-      liquidity,
-      amount0Min,
-      amount1Min,
-      deadline,
-    }]);
+    if (!isApproved) {
+      const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
+      const approveData = pmIface.encodeFunctionData("setApprovalForAll", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, true]);
+      await sendUniversalTx(params.pushChainClient, {
+        to: CONTRACTS.POSITION_MANAGER, value: 0n, data: approveData,
+      }, uOpts);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+    onStep(0, "CHECK PROXY APPROVAL", "confirmed");
+
+    const proxyIface = new ethers.Interface(LIQUIDITY_PROXY_ABI);
+
+    // ═══ STEP 1: Decrease liquidity via LiquidityProxy ═══
+    onStep(1, "DECREASE LIQUIDITY", "signing");
+    const decreaseCalldata = proxyIface.encodeFunctionData("decreaseLiquidity", [
+      params.tokenId, liquidity, amount0Min, amount1Min, deadline,
+    ]);
 
     const decreaseResult = await sendUniversalTx(params.pushChainClient, {
-      to: CONTRACTS.POSITION_MANAGER, value: 0n, data: decreaseCalldata,
+      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: decreaseCalldata,
     }, uOpts);
     let txHash = extractHash(decreaseResult);
     await new Promise(r => setTimeout(r, 3000));
-    onStep(0, "DECREASE LIQUIDITY", "confirmed");
+    onStep(1, "DECREASE LIQUIDITY", "confirmed");
 
-    // ═══ STEP 1: Collect tokens ═══
-    onStep(1, "COLLECT TOKENS", "signing");
-    const collectCalldata = pmIface.encodeFunctionData("collect", [{
-      tokenId: params.tokenId,
-      recipient: params.recipient,
-      amount0Max: MAX_UINT128,
-      amount1Max: MAX_UINT128,
-    }]);
+    // ═══ STEP 2: Collect tokens via LiquidityProxy ═══
+    onStep(2, "COLLECT TOKENS", "signing");
+    const collectCalldata = proxyIface.encodeFunctionData("collect", [
+      params.tokenId, MAX_UINT128, MAX_UINT128,
+    ]);
 
     const collectResult = await sendUniversalTx(params.pushChainClient, {
-      to: CONTRACTS.POSITION_MANAGER, value: 0n, data: collectCalldata,
+      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: collectCalldata,
     }, uOpts);
     txHash = extractHash(collectResult) || txHash;
     await new Promise(r => setTimeout(r, 3000));
-    onStep(1, "COLLECT TOKENS", "confirmed");
+    onStep(2, "COLLECT TOKENS", "confirmed");
 
-    // ═══ STEP 2: Burn NFT (optional) ═══
+    // ═══ STEP 3: Burn NFT (optional) via LiquidityProxy ═══
     if (params.burnAfter) {
-      onStep(2, "BURN POSITION NFT", "signing");
-      const burnCalldata = pmIface.encodeFunctionData("burn", [params.tokenId]);
+      onStep(3, "BURN POSITION NFT", "signing");
+      const burnCalldata = proxyIface.encodeFunctionData("burn", [params.tokenId]);
 
       await sendUniversalTx(params.pushChainClient, {
-        to: CONTRACTS.POSITION_MANAGER, value: 0n, data: burnCalldata,
+        to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: burnCalldata,
       }, uOpts);
-      onStep(2, "BURN POSITION NFT", "confirmed");
+      onStep(3, "BURN POSITION NFT", "confirmed");
     }
 
     return { txHash, success: true };
@@ -694,16 +702,28 @@ export async function collectFees(params: {
 }): Promise<{ txHash: string; success: boolean; error?: string }> {
   try {
     const MAX_UINT128 = BigInt("340282366920938463463374607431768211455");
-    const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
-    const calldata = pmIface.encodeFunctionData("collect", [{
-      tokenId: params.tokenId,
-      recipient: params.recipient,
-      amount0Max: MAX_UINT128,
-      amount1Max: MAX_UINT128,
-    }]);
+
+    // Ensure proxy is approved as operator
+    const provider = getProvider();
+    const pm = new ethers.Contract(CONTRACTS.POSITION_MANAGER, POSITION_MANAGER_ABI, provider);
+    const isApproved = await pm.isApprovedForAll(params.recipient, CONTRACTS.MOLESWAP_LIQUIDITY_PROXY).catch(() => false);
+
+    if (!isApproved) {
+      const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
+      const approveData = pmIface.encodeFunctionData("setApprovalForAll", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, true]);
+      await sendUniversalTx(params.pushChainClient, {
+        to: CONTRACTS.POSITION_MANAGER, value: 0n, data: approveData,
+      }, params.universalTxOptions);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+
+    const proxyIface = new ethers.Interface(LIQUIDITY_PROXY_ABI);
+    const calldata = proxyIface.encodeFunctionData("collect", [
+      params.tokenId, MAX_UINT128, MAX_UINT128,
+    ]);
 
     const collectResult = await sendUniversalTx(params.pushChainClient, {
-      to: CONTRACTS.POSITION_MANAGER, value: 0n, data: calldata,
+      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: calldata,
     }, params.universalTxOptions);
     const txHash = extractHash(collectResult);
 

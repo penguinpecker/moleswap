@@ -41,7 +41,7 @@ export const TransactionInfoPage = ({
 
   const getExplorerUrl = () => {
     if (!txId) return "";
-    const chainId = swapData.toChain?.id || 2442;
+    const chainId = swapData.toChain?.id || 42101;
     if (chainId === 8453) return `https://basescan.org/tx/${txId}`;
     if (chainId === 42161) return `https://arbiscan.io/tx/${txId}`;
     if (chainId === 10) return `https://optimistic.etherscan.io/tx/${txId}`;
