@@ -6,59 +6,10 @@ import Link from "next/link";
 import React, { useState, useEffect } from "react";
 import { NavBar } from "../shared";
 import { getLeaderboard } from "@/lib/supabase/api";
-const leaderboardData = [
-  {
-    id: 1,
-    name: "Robin",
-    score: 28332,
-    trophy: "🥇",
-    address: "0xc0ffee25472926.....10F9d54979",
-  },
-  {
-    id: 2,
-    name: "Tunnel Rat",
-    score: 19288,
-    trophy: "🥈",
-    address: "0xc0ffee25472926.....10F9d54979",
-  },
-  {
-    id: 3,
-    name: "Mole master",
-    score: 19110,
-    trophy: "🥉",
-    address: "0xc0ffee25472926.....10F9d54979",
-  },
-  {
-    id: 4,
-    name: "Player X",
-    score: 18100,
-    address: "0xc0ffee25472926.....10F9d54979",
-  },
-  {
-    id: 5,
-    name: "KnK",
-    score: 11020,
-    address: "0xc0ffee25472926.....10F9d54979",
-  },
-  {
-    id: 6,
-    name: "Diggy",
-    score: 9299,
-    address: "0xc0ffee25472926.....10F9d54979",
-  },
-  {
-    id: 7,
-    name: "Whoopie",
-    score: 9100,
-    address: "0xc0ffee25472926.....10F9d54979",
-  },
-  {
-    id: 8,
-    name: "Whoopie",
-    score: 9100,
-    address: "0xc0ffee25472926.....10F9d54979",
-  },
-];
+
+const EXPLORER_URL = "https://donut.push.network/address/";
+const PLAYERS_PER_PAGE = 25;
+
 const LeaderboardPage = () => {
   return (
     <div className="relative flex min-h-screen w-full flex-col items-center gap-2 sm:gap-4">
@@ -78,7 +29,6 @@ export default LeaderboardPage;
 const BackgroundImage = () => {
   return (
     <>
-      {/* Gradient BRLayers */}
       <div className="fixed inset-0 flex h-full flex-col">
         <Image
           src="/leaderboard/bricks.png"
@@ -88,8 +38,6 @@ const BackgroundImage = () => {
           className="absolute top-0 z-10 h-full w-full max-lg:object-cover"
         />
       </div>
-
-      {/*   BRICK */}
       <Image
         src="/leaderboard/soil.png"
         alt="Profile"
@@ -102,22 +50,35 @@ const BackgroundImage = () => {
 };
 
 export const QuestCardComponent = () => {
-  const [players, setPlayers] = useState(leaderboardData);
+  const [allPlayers, setAllPlayers] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getLeaderboard(50).then((data) => {
-      if (data && data.length >= 3 && data.some((u: any) => (u.total_xp || 0) > 0)) {
-        const mapped = data.map((u: any, i: number) => ({
-          id: i + 1,
-          name: u.username || `Player ${i + 1}`,
-          score: u.total_xp || 0,
-          trophy: i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : undefined,
-          address: u.wallet_address ? `${u.wallet_address.slice(0, 16)}.....${u.wallet_address.slice(-10)}` : "0xc0ffee25472926.....10F9d54979",
-        }));
-        setPlayers(mapped);
+    getLeaderboard(200).then((data) => {
+      if (data && data.length > 0 && data.some((u: any) => (u.total_xp || 0) > 0)) {
+        const mapped = data
+          .filter((u: any) => (u.total_xp || 0) > 0)
+          .sort((a: any, b: any) => (b.total_xp || 0) - (a.total_xp || 0))
+          .map((u: any, i: number) => ({
+            id: i + 1,
+            name: u.username || `Player ${i + 1}`,
+            score: u.total_xp || 0,
+            trophy: i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : undefined,
+            wallet: u.wallet_address || "",
+            displayAddr: u.wallet_address
+              ? `${u.wallet_address.slice(0, 6)}...${u.wallet_address.slice(-4)}`
+              : "0x0000...0000",
+          }));
+        setAllPlayers(mapped);
       }
-    }).catch(console.error);
+      setLoading(false);
+    }).catch((e) => { console.error(e); setLoading(false); });
   }, []);
+
+  const totalPages = Math.max(1, Math.ceil(allPlayers.length / PLAYERS_PER_PAGE));
+  const startIdx = (currentPage - 1) * PLAYERS_PER_PAGE;
+  const currentPlayers = allPlayers.slice(startIdx, startIdx + PLAYERS_PER_PAGE);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col px-2 sm:px-6">
@@ -146,84 +107,121 @@ export const QuestCardComponent = () => {
         />
         {/* Leaderboard List */}
         <div className="bg-leaderboard relative m-2 mx-auto flex w-full flex-1 flex-col items-center gap-2 p-2 pt-6 sm:m-6 sm:gap-2 sm:p-4 sm:pt-8">
-          {players.map((player, index) => {
-            // Determine background based on rank
-            const bgImage =
-              index === 0
-                ? "/leaderboard/player-info-board-1.png"
-                : index === 1
-                  ? "/leaderboard/player-info-board-2.png"
-                  : index === 2
-                    ? "/leaderboard/player-info-board-3.png"
-                    : "/leaderboard/player-info-board.png";
+          {loading ? (
+            <div className="font-family-ThaleahFat py-12 text-center text-xl text-[#FFD47A]">
+              Loading...
+            </div>
+          ) : currentPlayers.length === 0 ? (
+            <div className="font-family-ThaleahFat py-12 text-center text-xl text-[#FFD47A]">
+              No players yet
+            </div>
+          ) : (
+            currentPlayers.map((player) => {
+              const globalIndex = player.id - 1;
+              const bgImage =
+                globalIndex === 0
+                  ? "/leaderboard/player-info-board-1.png"
+                  : globalIndex === 1
+                    ? "/leaderboard/player-info-board-2.png"
+                    : globalIndex === 2
+                      ? "/leaderboard/player-info-board-3.png"
+                      : "/leaderboard/player-info-board.png";
 
-            return (
-              <div
-                key={player.id}
-                className="relative flex w-full max-w-3xl justify-between px-2 py-2 text-white shadow-md max-sm:flex-col sm:items-center sm:px-4 sm:py-3"
-              >
-                <Image
-                  src={bgImage}
-                  alt={`Player ${index + 1} background`}
-                  width={200}
-                  height={200}
-                  className="absolute inset-0 z-[0] h-full w-full object-fill"
-                />
+              return (
+                <div
+                  key={player.id}
+                  className="relative flex w-full max-w-3xl justify-between px-2 py-2 text-white shadow-md max-sm:flex-col sm:items-center sm:px-4 sm:py-3"
+                >
+                  <Image
+                    src={bgImage}
+                    alt={`Player ${player.id} background`}
+                    width={200}
+                    height={200}
+                    className="absolute inset-0 z-[0] h-full w-full object-fill"
+                  />
 
-                {/* Left side */}
-                <div className="z-10 flex items-center gap-3 overflow-hidden">
-                  {player.trophy ? (
-                    <div className="relative w-10">
-                      <Image
-                        src={`/leaderboard/${index + 1}.png`}
-                        alt="Trophy"
-                        width={60}
-                        height={60}
-                        className="absolute -top-5 left-0"
-                      />
+                  {/* Left side */}
+                  <div className="z-10 flex items-center gap-3 overflow-hidden">
+                    {player.trophy ? (
+                      <div className="relative w-10">
+                        <Image
+                          src={`/leaderboard/${globalIndex + 1}.png`}
+                          alt="Trophy"
+                          width={60}
+                          height={60}
+                          className="absolute -top-5 left-0"
+                        />
+                      </div>
+                    ) : (
+                      <div className="font-family-ThaleahFat text-leaderboard-rank relative flex h-[28px] w-[28px] items-center justify-center text-base sm:h-[40px] sm:w-[40px] sm:text-2xl">
+                        {player.id}
+                        <Image
+                          src="/leaderboard/rest.png"
+                          alt="Rank background"
+                          fill
+                          className="absolute inset-0 z-[-1] object-cover"
+                        />
+                      </div>
+                    )}
+                    <div className="flex flex-col">
+                      <span className="font-family-ThaleahFat text-base leading-5 sm:text-2xl sm:leading-7">
+                        {player.name}
+                      </span>
+                      <span className="font-family-ThaleahFat text-sm text-[#FFD47A] sm:hidden">
+                        {player.score.toLocaleString()}
+                      </span>
+                      <a
+                        href={`${EXPLORER_URL}${player.wallet}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-leaderboard-text font-mono text-[10px] break-all transition-colors hover:text-[#FFD47A] sm:text-sm"
+                      >
+                        {player.displayAddr}{" "}
+                        <SquareArrowOutUpRight
+                          size={14}
+                          className="inline text-sm"
+                        />
+                      </a>
                     </div>
-                  ) : (
-                    <div className="font-family-ThaleahFat text-leaderboard-rank relative flex h-[28px] w-[28px] items-center justify-center text-base sm:h-[40px] sm:w-[40px] sm:text-2xl">
-                      {index + 1}
-                      <Image
-                        src="/leaderboard/rest.png"
-                        alt="Rank background"
-                        fill
-                        className="absolute inset-0 z-[-1] object-cover"
-                      />
-                    </div>
-                  )}
-                  <div className="flex flex-col">
-                    <span className="font-family-ThaleahFat text-base leading-5 sm:text-2xl sm:leading-7">
-                      {player.name}
-                    </span>
-                    <span className="font-family-ThaleahFat text-sm text-[#FFD47A] sm:hidden">
-                      {player.score}
-                    </span>
-                    <Link
-                      href={"#"}
-                      className="text-leaderboard-text font-mono text-[10px] break-all sm:text-sm"
-                    >
-                      {player.address}{" "}
-                      <SquareArrowOutUpRight
-                        size={14}
-                        className="inline text-sm"
-                      />
-                    </Link>
                   </div>
+
+                  {/* Divider lines */}
+                  <div className="bg-leaderboard before:bg-leaderboard relative mr-auto ml-6 hidden h-full w-[4px] before:absolute before:top-0 before:left-0 before:h-[1px] before:w-full before:content-[''] sm:block" />
+                  <div className="bg-leaderboard before:bg-leaderboard relative mr-6 ml-auto hidden h-full w-[4px] before:absolute before:top-0 before:left-0 before:h-[1px] before:w-full before:content-[''] sm:block" />
+
+                  {/* Right side */}
+                  <span className="font-family-ThaleahFat z-10 text-xl max-sm:hidden sm:text-3xl">
+                    {player.score.toLocaleString()}
+                  </span>
                 </div>
+              );
+            })
+          )}
 
-                {/* Divider lines */}
-                <div className="bg-leaderboard before:bg-leaderboard relative mr-auto ml-6 hidden h-full w-[4px] before:absolute before:top-0 before:left-0 before:h-[1px] before:w-full before:content-[''] sm:block" />
-                <div className="bg-leaderboard before:bg-leaderboard relative mr-6 ml-auto hidden h-full w-[4px] before:absolute before:top-0 before:left-0 before:h-[1px] before:w-full before:content-[''] sm:block" />
-
-                {/* Right side */}
-                <span className="font-family-ThaleahFat z-10 text-xl max-sm:hidden sm:text-3xl">
-                  {player.score}
-                </span>
+          {/* Pagination */}
+          {allPlayers.length > PLAYERS_PER_PAGE && (
+            <div className="z-30 mt-4 mb-2 flex flex-col items-center gap-3">
+              <span className="text-peach-400 bg-ground-button font-family-ThaleahFat rounded px-3 py-1 text-lg font-bold tracking-wider">
+                {currentPage} of {totalPages}
+              </span>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="bg-ground-button border-ground-button-border flex h-10 w-10 cursor-pointer items-center justify-center rounded border-2 transition-all hover:scale-105 disabled:opacity-30 disabled:hover:scale-100"
+                >
+                  <ArrowLeft className="text-peach-400 h-5 w-5" />
+                </button>
+                <button
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="bg-ground-button border-ground-button-border flex h-10 w-10 cursor-pointer items-center justify-center rounded border-2 transition-all hover:scale-105 disabled:opacity-30 disabled:hover:scale-100"
+                >
+                  <ArrowRight className="text-peach-400 h-5 w-5" />
+                </button>
               </div>
-            );
-          })}
+            </div>
+          )}
         </div>
       </div>
     </div>
