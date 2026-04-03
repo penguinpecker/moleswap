@@ -142,6 +142,7 @@ export const QuestCardComponent = () => {
   const [activeTab, setActiveTab] = useState<"main" | "social" | "dapp" | "game">("main");
   const [allQuests, setAllQuests] = useState(mockQuests);
   const [questProgress, setQuestProgress] = useState<Map<string, QuestWithProgress>>(new Map());
+  const [userId, setUserId] = useState<string | null>(null);
   const questsPerPage = 8;
 
   const walletCtx = usePushWalletContext();
@@ -149,60 +150,82 @@ export const QuestCardComponent = () => {
   const isConnected = walletCtx?.connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
   const walletAddress = walletCtx?.universalAccount?.address || pushChainClient?.universal?.account || null;
 
-  useEffect(() => {
-    const loadQuests = async () => {
-      // Try to get user ID for progress
-      let userId: string | null = null;
-      if (walletAddress) {
-        const user = await getOrCreateUser(walletAddress);
-        userId = user?.id || null;
-      }
+  const loadQuests = async () => {
+    let uid: string | null = null;
+    if (walletAddress) {
+      const user = await getOrCreateUser(walletAddress);
+      uid = user?.id || null;
+      setUserId(uid);
+    }
 
-      // Use enhanced API with progress if we have a userId
-      const data = userId
-        ? await getQuestsWithProgress(userId)
-        : await getQuestsWithProgress();
+    const data = uid
+      ? await getQuestsWithProgress(uid)
+      : await getQuestsWithProgress();
 
-      if (data && data.length > 0) {
-        const mapped = data.map((q: any) => ({
+    if (data && data.length > 0) {
+      const mapped = data.map((q: any) => ({
+        id: q.id,
+        image: q.image_url || `/quest/main-quest-${q.sort_order}.png`,
+        alt: q.title || `Quest ${q.sort_order}`,
+        quest_type: q.quest_type,
+        category: q.category || q.quest_type,
+        progress: q.progress || 0,
+        required_count: q.required_count || 1,
+        is_completed: q.is_completed || false,
+        is_claimed: q.is_claimed || false,
+        xp_reward: q.xp_reward || 0,
+        difficulty: q.difficulty || "easy",
+        title: q.title,
+        action_params: q.action_params || {},
+        action_type: q.action_type || "manual",
+      }));
+      setAllQuests(mapped);
+
+      const pMap = new Map<string, QuestWithProgress>();
+      data.forEach((q: QuestWithProgress) => pMap.set(q.id, q));
+      setQuestProgress(pMap);
+    } else {
+      const basicData = await getQuests();
+      if (basicData && basicData.length > 0) {
+        const mapped = basicData.map((q: any) => ({
           id: q.id,
           image: q.image_url || `/quest/main-quest-${q.sort_order}.png`,
           alt: q.title || `Quest ${q.sort_order}`,
           quest_type: q.quest_type,
-          category: q.category || q.quest_type,
-          progress: q.progress || 0,
-          required_count: q.required_count || 1,
-          is_completed: q.is_completed || false,
-          is_claimed: q.is_claimed || false,
-          xp_reward: q.xp_reward || 0,
-          difficulty: q.difficulty || "easy",
-          title: q.title,
-          action_params: q.action_params || {},
-          action_type: q.action_type || "manual",
         }));
         setAllQuests(mapped);
-
-        // Build progress map
-        const pMap = new Map<string, QuestWithProgress>();
-        data.forEach((q: QuestWithProgress) => pMap.set(q.id, q));
-        setQuestProgress(pMap);
-      } else {
-        // Fallback to basic getQuests
-        const basicData = await getQuests();
-        if (basicData && basicData.length > 0) {
-          const mapped = basicData.map((q: any) => ({
-            id: q.id,
-            image: q.image_url || `/quest/main-quest-${q.sort_order}.png`,
-            alt: q.title || `Quest ${q.sort_order}`,
-            quest_type: q.quest_type,
-          }));
-          setAllQuests(mapped);
-        }
       }
-    };
+    }
+  };
 
+  useEffect(() => {
     loadQuests().catch(console.error);
   }, [walletAddress]);
+
+  useEffect(() => {
+    const onFocus = () => { loadQuests().catch(console.error); };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [walletAddress]);
+
+  const verifySocialQuest = async (questId: string) => {
+    if (!userId) return;
+    try {
+      const res = await fetch("/api/quests/verify-social", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, questId }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAllQuests(prev => prev.map(q =>
+          q.id === questId ? { ...q, is_completed: true, is_claimed: true } : q
+        ));
+      }
+    } catch (e) {
+      console.error("Social quest verify error:", e);
+    }
+  };
 
   useEffect(() => { setCurrentPage(1); }, [activeTab]);
 
@@ -228,8 +251,11 @@ export const QuestCardComponent = () => {
     setCurrentPage((prev) => Math.min(totalPages, prev + 1));
   };
 
-  const handleQuestClick = (questId: string) => {
-    console.log(`Quest clicked: ${questId}`);
+  const handleQuestClick = (quest: any) => {
+    const isSocial = quest.category === "social" || quest.quest_type === "social";
+    if (isSocial && !quest.is_completed) {
+      verifySocialQuest(quest.id);
+    }
   };
   const tabClass = (tab: string) =>
     `font-family-ThaleahFat text-shadow-black px-2 rounded-full text-sm sm:px-4 sm:text-3xl transition-colors duration-150 cursor-pointer ${
@@ -308,7 +334,7 @@ export const QuestCardComponent = () => {
                 onClick={() => {
                   const url = getClickUrl();
                   if (url) window.open(url, "_blank", "noopener,noreferrer");
-                  handleQuestClick(quest.id);
+                  handleQuestClick(quest);
                 }}
               >
                 <Image

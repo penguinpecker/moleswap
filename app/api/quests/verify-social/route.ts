@@ -30,16 +30,18 @@ export async function POST(req: NextRequest) {
       .select("*")
       .eq("user_id", userId)
       .eq("quest_id", questId)
-      .single();
+      .maybeSingle();
 
     if (existing?.is_completed) {
-      return NextResponse.json({ error: "Quest already completed" }, { status: 400 });
+      return NextResponse.json({ success: true, already: true, xp_earned: 0 });
     }
+
+    const now = new Date().toISOString();
 
     if (existing) {
       await supabase
         .from("user_quests")
-        .update({ progress: 1, is_completed: true, completed_at: new Date().toISOString() })
+        .update({ progress: 1, is_completed: true, is_claimed: true, completed_at: now, claimed_at: now, updated_at: now })
         .eq("user_id", userId)
         .eq("quest_id", questId);
     } else {
@@ -48,16 +50,23 @@ export async function POST(req: NextRequest) {
         quest_id: questId,
         progress: 1,
         is_completed: true,
-        completed_at: new Date().toISOString(),
+        is_claimed: true,
+        completed_at: now,
+        claimed_at: now,
       });
     }
 
-    await supabase.rpc("add_xp_to_user", { p_user_id: userId, p_xp: quest.xp_reward }).catch(() => {
-      supabase
-        .from("profiles")
-        .update({ total_xp: supabase.rpc("increment_xp", { row_id: userId, amount: quest.xp_reward }) })
-        .eq("id", userId);
-    });
+    const { data: userData } = await supabase.from("users").select("total_xp").eq("id", userId).single();
+    if (userData) {
+      await supabase.from("users").update({ total_xp: (userData.total_xp || 0) + quest.xp_reward }).eq("id", userId);
+    }
+
+    await supabase.from("xp_transactions").insert({
+      user_id: userId,
+      amount: quest.xp_reward,
+      source: "quest",
+      description: quest.title,
+    }).catch(() => {});
 
     return NextResponse.json({ success: true, xp_earned: quest.xp_reward });
   } catch (err: any) {
