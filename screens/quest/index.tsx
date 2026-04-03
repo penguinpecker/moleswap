@@ -178,6 +178,7 @@ export const QuestCardComponent = () => {
           difficulty: q.difficulty || "easy",
           title: q.title,
           action_params: q.action_params || {},
+          action_type: q.action_type || "manual",
         }));
         setAllQuests(mapped);
 
@@ -290,38 +291,48 @@ export const QuestCardComponent = () => {
 
         {/* Quest Grid */}
         <div className="relative mb-6 grid grid-cols-1 gap-2 p-2 sm:gap-4 sm:p-4 md:grid-cols-2">
-          {currentQuests.map((quest: any) => (
-            <div
-              key={quest.id}
-              className="group relative cursor-pointer"
-              onClick={() => {
-                if (quest.action_params?.url && !quest.is_completed) {
-                  window.open(quest.action_params.url, "_blank", "noopener,noreferrer");
-                }
-                handleQuestClick(quest.id);
-              }}
-            >
-              <Image
-                src={quest.image}
-                alt={quest.alt}
-                width={200}
-                height={200}
-                className="w-full transition-all group-hover:scale-[1.02]"
-              />
-              {/* Green tick over XP area when completed */}
-              {quest.is_completed && (
-                <div className="absolute top-1/2 right-2 -translate-y-1/2 sm:right-4">
-                  <Image
-                    src="/quest/green-check.png"
-                    alt="Completed"
-                    width={48}
-                    height={64}
-                    className="h-[50px] w-auto drop-shadow-lg sm:h-[60px]"
-                  />
-                </div>
-              )}
-            </div>
-          ))}
+          {currentQuests.map((quest: any) => {
+            const isSocial = quest.category === "social" || quest.quest_type === "social";
+            const tweetId = quest.action_params?.tweetId;
+            const getClickUrl = () => {
+              if (quest.is_completed) return null;
+              if (quest.action_type === "twitter_follow") return quest.action_params?.url || `https://x.com/intent/follow?screen_name=${quest.action_params?.handle?.replace("@", "")}`;
+              if (quest.action_type === "twitter_like_rt" && tweetId) return `https://x.com/intent/like?tweet_id=${tweetId}`;
+              if (quest.action_params?.url) return quest.action_params.url;
+              return null;
+            };
+            return (
+              <div
+                key={quest.id}
+                className="group relative cursor-pointer"
+                onClick={() => {
+                  const url = getClickUrl();
+                  if (url) window.open(url, "_blank", "noopener,noreferrer");
+                  handleQuestClick(quest.id);
+                }}
+              >
+                <Image
+                  src={quest.image}
+                  alt={quest.alt}
+                  width={403}
+                  height={92}
+                  className="w-full transition-all group-hover:scale-[1.02]"
+                />
+                {/* Green tick over XP area when completed */}
+                {quest.is_completed && (
+                  <div className="absolute right-[3%] top-1/2 -translate-y-1/2">
+                    <Image
+                      src="/quest/green-check.png"
+                      alt="Completed"
+                      width={48}
+                      height={48}
+                      className="h-[32px] w-[32px] sm:h-[40px] sm:w-[40px]"
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         {/* Pagination */}
