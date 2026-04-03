@@ -306,56 +306,18 @@ export const QuestCardComponent = () => {
                 alt={quest.alt}
                 width={200}
                 height={200}
-                className={`w-full transition-all ${quest.is_completed && quest.is_claimed ? "brightness-50 saturate-50" : quest.is_completed ? "brightness-75" : "group-hover:scale-[1.02]"}`}
+                className="w-full transition-all group-hover:scale-[1.02]"
               />
-              {/* Progress overlay */}
-              {quest.progress !== undefined && quest.required_count > 1 && !quest.is_completed && (
-                <div className="absolute bottom-2 left-2 right-2">
-                  <div className="border-ground-button-border rounded border bg-black/70 px-2 py-1">
-                    <div className="mb-0.5 flex justify-between">
-                      <span className="font-family-ThaleahFat text-[9px] text-gray-300">PROGRESS</span>
-                      <span className="font-family-ThaleahFat text-peach-300 text-[9px]">{quest.progress}/{quest.required_count}</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded bg-[#281a12]">
-                      <div className="h-full rounded bg-gradient-to-r from-[#6DBB3E] to-[#feae34]"
-                        style={{ width: `${Math.min(100, (quest.progress / quest.required_count) * 100)}%` }} />
-                    </div>
-                  </div>
-                </div>
-              )}
-              {/* Completed + Claimed: subtle corner badge, card stays visible */}
-              {quest.is_completed && quest.is_claimed && (
-                <div className="absolute top-1 right-1 flex items-center gap-1 rounded bg-[#2d5a1e]/90 px-2 py-0.5 shadow-md">
-                  <span className="font-family-ThaleahFat text-[10px] tracking-wider text-[#8fce6a]">✓ CLAIMED</span>
-                  <span className="font-family-ThaleahFat text-[10px] text-white/50 line-through">+{quest.xp_reward} XP</span>
-                </div>
-              )}
-              {/* Completed but NOT claimed: glowing claim prompt */}
-              {quest.is_completed && !quest.is_claimed && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="animate-pulse rounded-lg border-2 border-[#feae34] bg-[#5a3a00]/90 px-4 py-2 shadow-[0_0_12px_rgba(254,174,52,0.5)]">
-                    <span className="font-family-ThaleahFat text-lg tracking-wider text-[#FFD700]">🎁 CLAIM +{quest.xp_reward} XP</span>
-                  </div>
-                </div>
-              )}
-              {/* Social quest: show link hint for uncompleted */}
-              {quest.action_params?.url && !quest.is_completed && (
-                <div className="absolute bottom-1.5 right-1.5">
-                  <span className="font-family-ThaleahFat rounded bg-[#1DA1F2]/90 px-2 py-0.5 text-[9px] tracking-wider text-white shadow">
-                    OPEN 𝕏 →
-                  </span>
-                </div>
-              )}
-              {/* Difficulty badge */}
-              {quest.difficulty && quest.difficulty !== "easy" && !quest.is_completed && (
-                <div className="absolute top-2 right-2">
-                  <span className={`font-family-ThaleahFat rounded-sm px-1.5 py-0.5 text-[8px] uppercase ${
-                    quest.difficulty === "legendary" ? "bg-purple-600 text-white" :
-                    quest.difficulty === "hard" ? "bg-red-600 text-white" :
-                    "bg-yellow-600 text-white"
-                  }`}>
-                    {quest.difficulty}
-                  </span>
+              {/* Green tick over XP area when completed */}
+              {quest.is_completed && (
+                <div className="absolute top-1/2 right-2 -translate-y-1/2 sm:right-4">
+                  <Image
+                    src="/quest/green-check.png"
+                    alt="Completed"
+                    width={48}
+                    height={64}
+                    className="h-[50px] w-auto drop-shadow-lg sm:h-[60px]"
+                  />
                 </div>
               )}
             </div>
