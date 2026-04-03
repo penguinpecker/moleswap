@@ -7,6 +7,7 @@ import { getChains, getTokensForChain, type RelayChain } from "@/lib/relay/api";
 import { relayClient } from "@/lib/relay/client";
 import { usePushWallet } from "@/lib/pushchain/provider";
 import { getTokenByAddress } from "@/lib/pushchain/contracts";
+import { estimateSwapDetails } from "@/lib/pushchain/amm";
 import { getOrCreateUser, getUserSwapHistory } from "@/lib/supabase/api";
 import { getTokenBalance } from "@/lib/wallet/walletClient";
 import { useRouter } from "next/navigation";
@@ -47,6 +48,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   const [ttlLeft, setTtlLeft] = useState<number>(0);
   const [walletAddress, setWalletAddress] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
+  const [pushEstimate, setPushEstimate] = useState<{ etaSeconds: number; totalGas: number; txCount: number; breakdown: string[] } | null>(null);
   const [fromTokenBalance, setFromTokenBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
   const [recipientAddress, setRecipientAddress] = useState<string | null>(null);
@@ -450,6 +452,22 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     };
   }, [fetchQuote, canQuote]);
 
+  useEffect(() => {
+    if (fromChainId !== toChainId || String(fromChainId) !== "42101" || !amountWei || amountWei === "0" || !walletAddress) {
+      setPushEstimate(null);
+      return;
+    }
+    let cancelled = false;
+    estimateSwapDetails({
+      tokenIn: fromToken || "0x0000000000000000000000000000000000000000",
+      tokenOut: toToken || "0x0000000000000000000000000000000000000000",
+      amountIn: amountWei,
+      recipient: walletAddress,
+    }).then(est => { if (!cancelled) setPushEstimate(est); })
+      .catch(() => { if (!cancelled) setPushEstimate(null); });
+    return () => { cancelled = true; };
+  }, [fromChainId, toChainId, fromToken, toToken, amountWei, walletAddress]);
+
   // ----- TTL (kept) -----
   useEffect(() => {
     const id = setInterval(() => {
@@ -552,7 +570,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     return usd ? `$${Number(usd).toFixed(2)} fees` : undefined;
   }, [quote]);
   const isPushChainSwap = fromChainId === toChainId && String(fromChainId) === "42101";
-  const feesDisplayLabel = feesLabel || (isPushChainSwap && quote ? "~0.25% fee" : undefined);
+  const feesDisplayLabel = feesLabel || (isPushChainSwap && quote
+    ? (pushEstimate ? `~${(pushEstimate.totalGas / 1000).toFixed(0)}k gas • 0.25% fee` : "~0.25% fee")
+    : undefined);
   const etaSeconds = useMemo(() => {
     const direct =
       quote?.estimatedTimeSeconds ??
@@ -577,11 +597,11 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       }
       return eta;
     }
-    if (fromChainId === toChainId && String(fromChainId) === "42101") {
-      return 15;
+    if (fromChainId === toChainId && String(fromChainId) === "42101" && pushEstimate) {
+      return pushEstimate.etaSeconds;
     }
     return undefined;
-  }, [quote, fromChainId, toChainId]);
+  }, [quote, fromChainId, toChainId, pushEstimate]);
   const rateLabel = useMemo(() => {
     try {
       if (

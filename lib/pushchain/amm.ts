@@ -202,6 +202,102 @@ export async function getSwapQuote(params: {
   }
 }
 
+// ═══ ESTIMATE SWAP DETAILS (ETA + gas via on-chain simulation) ═══
+export async function estimateSwapDetails(params: {
+  tokenIn: string;
+  tokenOut: string;
+  amountIn: string;
+  recipient: string;
+}): Promise<{ etaSeconds: number; totalGas: number; txCount: number; breakdown: string[] } | null> {
+  try {
+    const provider = getProvider();
+    const isNativeIn = params.tokenIn === ethers.ZeroAddress;
+    const actualIn = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
+    const actualOut = params.tokenOut === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenOut;
+    const amountIn = BigInt(params.amountIn || "0");
+    if (amountIn === 0n) return null;
+
+    const isWrap = isNativeIn && actualOut.toLowerCase() === CONTRACTS.WPC.toLowerCase();
+    const isUnwrap = actualIn.toLowerCase() === CONTRACTS.WPC.toLowerCase() && params.tokenOut === ethers.ZeroAddress;
+
+    const steps: { label: string; gas: number }[] = [];
+    const depositSelector = "0xd0e30db0";
+    const withdrawSelector = "0x2e1a7d4d";
+
+    if (isWrap) {
+      const gas = await provider.estimateGas({
+        from: params.recipient, to: CONTRACTS.WPC, value: amountIn, data: depositSelector,
+      }).then(g => Number(g)).catch(() => 28000);
+      steps.push({ label: "Wrap PC → WPC", gas });
+    } else if (isUnwrap) {
+      const iface = new ethers.Interface(["function withdraw(uint256 wad)"]);
+      const gas = await provider.estimateGas({
+        from: params.recipient, to: CONTRACTS.WPC, data: iface.encodeFunctionData("withdraw", [amountIn]),
+      }).then(g => Number(g)).catch(() => 30000);
+      steps.push({ label: "Unwrap WPC → PC", gas });
+    } else {
+      if (isNativeIn) {
+        const gas = await provider.estimateGas({
+          from: params.recipient, to: CONTRACTS.WPC, value: amountIn, data: depositSelector,
+        }).then(g => Number(g)).catch(() => 28000);
+        steps.push({ label: "Wrap PC → WPC", gas });
+      }
+
+      const tokenToApprove = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
+      let needsApproval = true;
+      try {
+        const token = new ethers.Contract(tokenToApprove, ERC20_ABI, provider);
+        const allowance = await token.allowance(params.recipient, CONTRACTS.MOLESWAP_FEE_ROUTER);
+        needsApproval = allowance < amountIn;
+      } catch { needsApproval = true; }
+
+      if (needsApproval) {
+        const approveIface = new ethers.Interface(["function approve(address,uint256) returns (bool)"]);
+        const gas = await provider.estimateGas({
+          from: params.recipient, to: tokenToApprove,
+          data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, amountIn * 10n]),
+        }).then(g => Number(g)).catch(() => 27000);
+        steps.push({ label: "Approve token", gas });
+      }
+
+      const pool = findPool(actualIn, actualOut);
+      const fee = pool?.fee || 500;
+      const iface = new ethers.Interface(FEE_ROUTER_ABI);
+      const swapData = iface.encodeFunctionData("swapExactInputSingle", [
+        actualIn, actualOut, fee, amountIn, 0, Math.floor(Date.now() / 1000) + 1800, 0,
+      ]);
+      const gas = await provider.estimateGas({
+        from: params.recipient, to: CONTRACTS.MOLESWAP_FEE_ROUTER, data: swapData,
+      }).then(g => Number(g)).catch(() => 150000);
+      steps.push({ label: "Swap tokens", gas });
+    }
+
+    let blockTime = 1.4;
+    try {
+      const latest = await provider.getBlock("latest");
+      const older = await provider.getBlock(latest!.number - 20);
+      if (latest && older) {
+        blockTime = (latest.timestamp - older.timestamp) / 20;
+      }
+    } catch {}
+
+    const totalGas = steps.reduce((sum, s) => sum + s.gas, 0);
+    const signingTime = 3;
+    const confirmTime = Math.ceil(blockTime * 2);
+    const etaSeconds = Math.round(steps.length * (signingTime + confirmTime));
+
+    return {
+      etaSeconds,
+      totalGas,
+      txCount: steps.length,
+      breakdown: steps.map(s => `${s.label}: ~${(s.gas / 1000).toFixed(0)}k gas`),
+    };
+  } catch (err) {
+    console.error("[MoleSwap] estimateSwapDetails error:", err);
+    return null;
+  }
+}
+
 // ═══ HELPER: Extract tx hash from PushChain wallet response ═══
 function extractHash(result: any): string {
   if (!result) return "";
