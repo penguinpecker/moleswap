@@ -85,7 +85,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
             c[0].currency?.address ||
             "0x0000000000000000000000000000000000000000";
           setFromToken(nativeAddr);
-          setToToken("0xE17DD2E0509f99E9ee9469Cf6634048Ec5a3ADe9");
+          setToToken("0x2971824Db68229D087931155C2b8bB820B275809");
         }
       })
       .finally(() => setLoadingChains(false));
