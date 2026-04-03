@@ -65,6 +65,39 @@ async function sendUniversalTx(
   return pushChainClient.universal.sendTransaction(txParams);
 }
 
+// ═══ HELPER: Send EVM tx preferring direct signing over Universal TX ═══
+// Universal TX routes through a Cosmos executor contract, making msg.sender
+// the executor — not the user. This breaks WETH deposit/withdraw (credits
+// wrong address), ERC20 approve (sets wrong allowance), and transferFrom
+// (pulls from wrong address). Direct EVM signing keeps msg.sender = user.
+async function sendTx(
+  pushChainClient: any,
+  tx: { to: string; value: bigint; data?: string },
+  options?: UniversalTxOptions,
+): Promise<any> {
+  if (typeof window !== "undefined" && (window as any).ethereum) {
+    try {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const signer = await provider.getSigner();
+      const network = await provider.getNetwork();
+      if (Number(network.chainId) === PUSHCHAIN_CHAIN_ID) {
+        console.log("[MoleSwap] Using direct EVM signing (msg.sender = user)");
+        const sent = await signer.sendTransaction({
+          to: tx.to,
+          value: tx.value,
+          data: tx.data || "0x",
+        });
+        const receipt = await sent.wait();
+        return receipt?.hash || sent.hash;
+      }
+    } catch (e: any) {
+      console.warn("[MoleSwap] Direct EVM signing failed, falling back to Universal TX:", e?.message);
+    }
+  }
+  console.log("[MoleSwap] Using Universal TX (Cosmos-wrapped EVM)");
+  return sendUniversalTx(pushChainClient, tx, options);
+}
+
 // ═══ PROVIDER ═══
 export function getProvider(): ethers.JsonRpcProvider {
   return new ethers.JsonRpcProvider(PUSHCHAIN_RPC);
@@ -249,7 +282,7 @@ export async function executeSwap(params: {
       const wpcIface = new ethers.Interface(["function deposit() payable"]);
       const wrapData = wpcIface.encodeFunctionData("deposit");
 
-      const wrapResult = await sendUniversalTx(params.pushChainClient, {
+      const wrapResult = await sendTx(params.pushChainClient, {
         to: CONTRACTS.WPC, value: amountIn, data: wrapData,
       }, uOpts);
       const txHash = extractHash(wrapResult);
@@ -263,7 +296,7 @@ export async function executeSwap(params: {
       const wpcIface = new ethers.Interface(["function withdraw(uint256 wad)"]);
       const unwrapData = wpcIface.encodeFunctionData("withdraw", [amountIn]);
 
-      const unwrapResult = await sendUniversalTx(params.pushChainClient, {
+      const unwrapResult = await sendTx(params.pushChainClient, {
         to: CONTRACTS.WPC, value: BigInt(0), data: unwrapData,
       }, uOpts);
       const txHash = extractHash(unwrapResult);
@@ -278,7 +311,7 @@ export async function executeSwap(params: {
       const wpcIface = new ethers.Interface(["function deposit() payable"]);
       const wrapData = wpcIface.encodeFunctionData("deposit");
 
-      const wrapTx = await sendUniversalTx(params.pushChainClient, {
+      const wrapTx = await sendTx(params.pushChainClient, {
         to: CONTRACTS.WPC, value: amountIn, data: wrapData,
       }, uOpts);
       console.log("[MoleSwap] Wrap tx:", extractHash(wrapTx));
@@ -318,7 +351,7 @@ export async function executeSwap(params: {
       const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
       const approveData = approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, MAX_UINT]);
       
-      await sendUniversalTx(params.pushChainClient, {
+      await sendTx(params.pushChainClient, {
         to: tokenToApprove, value: BigInt(0), data: approveData,
       }, uOpts);
       
@@ -348,7 +381,7 @@ export async function executeSwap(params: {
       0,
     ]);
 
-    const swapResult = await sendUniversalTx(params.pushChainClient, {
+    const swapResult = await sendTx(params.pushChainClient, {
       to: CONTRACTS.MOLESWAP_FEE_ROUTER, value: BigInt(0), data: swapCalldata,
     }, uOpts);
     const txHash = extractHash(swapResult);
@@ -520,7 +553,7 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
       const wrapIface = new ethers.Interface(["function deposit() payable"]);
       const wrapData = wrapIface.encodeFunctionData("deposit");
 
-      await sendUniversalTx(params.pushChainClient, {
+      await sendTx(params.pushChainClient, {
         to: CONTRACTS.WPC, value: wrapAmount, data: wrapData,
       }, uOpts);
       await new Promise(r => setTimeout(r, 5000));
@@ -534,7 +567,7 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
     const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
     const approveIface = new ethers.Interface(["function approve(address, uint256) returns (bool)"]);
 
-    await sendUniversalTx(params.pushChainClient, {
+    await sendTx(params.pushChainClient, {
       to: token0, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, MAX_UINT]),
     }, uOpts);
     await new Promise(r => setTimeout(r, 5000));
@@ -542,7 +575,7 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
 
     // ═══ STEP 2: Approve token1 to LiquidityProxy ═══
     onStep(2, `APPROVE ${token1.slice(0,6)}...`, "signing");
-    await sendUniversalTx(params.pushChainClient, {
+    await sendTx(params.pushChainClient, {
       to: token1, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, MAX_UINT]),
     }, uOpts);
     await new Promise(r => setTimeout(r, 5000));
@@ -559,7 +592,7 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
       deadline,
     }]);
 
-    const mintResult = await sendUniversalTx(params.pushChainClient, {
+    const mintResult = await sendTx(params.pushChainClient, {
       to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: mintCalldata,
     }, uOpts);
     const txHash = extractHash(mintResult);
@@ -595,7 +628,7 @@ export async function removeLiquidity(params: RemoveLiquidityParams): Promise<{ 
     if (!isApproved) {
       const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
       const approveData = pmIface.encodeFunctionData("setApprovalForAll", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, true]);
-      await sendUniversalTx(params.pushChainClient, {
+      await sendTx(params.pushChainClient, {
         to: CONTRACTS.POSITION_MANAGER, value: 0n, data: approveData,
       }, uOpts);
       await new Promise(r => setTimeout(r, 5000));
@@ -610,7 +643,7 @@ export async function removeLiquidity(params: RemoveLiquidityParams): Promise<{ 
       params.tokenId, liquidity, amount0Min, amount1Min, deadline,
     ]);
 
-    const decreaseResult = await sendUniversalTx(params.pushChainClient, {
+    const decreaseResult = await sendTx(params.pushChainClient, {
       to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: decreaseCalldata,
     }, uOpts);
     let txHash = extractHash(decreaseResult);
@@ -623,7 +656,7 @@ export async function removeLiquidity(params: RemoveLiquidityParams): Promise<{ 
       params.tokenId, MAX_UINT128, MAX_UINT128,
     ]);
 
-    const collectResult = await sendUniversalTx(params.pushChainClient, {
+    const collectResult = await sendTx(params.pushChainClient, {
       to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: collectCalldata,
     }, uOpts);
     txHash = extractHash(collectResult) || txHash;
@@ -635,7 +668,7 @@ export async function removeLiquidity(params: RemoveLiquidityParams): Promise<{ 
       onStep(3, "BURN POSITION NFT", "signing");
       const burnCalldata = proxyIface.encodeFunctionData("burn", [params.tokenId]);
 
-      await sendUniversalTx(params.pushChainClient, {
+      await sendTx(params.pushChainClient, {
         to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: burnCalldata,
       }, uOpts);
       onStep(3, "BURN POSITION NFT", "confirmed");
@@ -712,7 +745,7 @@ export async function collectFees(params: {
     if (!isApproved) {
       const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
       const approveData = pmIface.encodeFunctionData("setApprovalForAll", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, true]);
-      await sendUniversalTx(params.pushChainClient, {
+      await sendTx(params.pushChainClient, {
         to: CONTRACTS.POSITION_MANAGER, value: 0n, data: approveData,
       }, params.universalTxOptions);
       await new Promise(r => setTimeout(r, 5000));
@@ -723,7 +756,7 @@ export async function collectFees(params: {
       params.tokenId, MAX_UINT128, MAX_UINT128,
     ]);
 
-    const collectResult = await sendUniversalTx(params.pushChainClient, {
+    const collectResult = await sendTx(params.pushChainClient, {
       to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: calldata,
     }, params.universalTxOptions);
     const txHash = extractHash(collectResult);
