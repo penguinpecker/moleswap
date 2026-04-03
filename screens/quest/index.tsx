@@ -318,18 +318,6 @@ export const QuestCardComponent = () => {
                   height={92}
                   className="w-full transition-all group-hover:scale-[1.02]"
                 />
-                {/* Green tick over XP area when completed */}
-                {quest.is_completed && (
-                  <div className="absolute right-[3%] top-1/2 -translate-y-1/2">
-                    <Image
-                      src="/quest/green-check.png"
-                      alt="Completed"
-                      width={48}
-                      height={48}
-                      className="h-[32px] w-[32px] sm:h-[40px] sm:w-[40px]"
-                    />
-                  </div>
-                )}
               </div>
             );
           })}
