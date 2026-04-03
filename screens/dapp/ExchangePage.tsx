@@ -551,6 +551,8 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     }
     return usd ? `$${Number(usd).toFixed(2)} fees` : undefined;
   }, [quote]);
+  const isPushChainSwap = fromChainId === toChainId && String(fromChainId) === "42101";
+  const feesDisplayLabel = feesLabel || (isPushChainSwap && quote ? "~0.25% fee" : undefined);
   const etaSeconds = useMemo(() => {
     const direct =
       quote?.estimatedTimeSeconds ??
@@ -575,8 +577,11 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       }
       return eta;
     }
+    if (fromChainId === toChainId && String(fromChainId) === "42101") {
+      return 15;
+    }
     return undefined;
-  }, [quote]);
+  }, [quote, fromChainId, toChainId]);
   const rateLabel = useMemo(() => {
     try {
       if (
@@ -776,7 +781,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       fromChain,
       toChain,
       routeLabel: routeLabel || "Auto",
-      feesLabel: feesLabel || "-",
+      feesLabel: feesDisplayLabel || "-",
       etaSeconds: typeof etaSeconds === "number" ? etaSeconds : undefined,
       rateLabel: rateLabel || "-",
       walletAddress,
@@ -1749,10 +1754,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                                 {toTokenMeta?.symbol} on{" "}
                                 {toChain?.displayName || toChain?.name}
                               </span>
-                              {feesLabel ? (
+                              {feesDisplayLabel ? (
                                 <>
                                   {" "}
-                                  • <span>{feesLabel}</span>
+                                  • <span>{feesDisplayLabel}</span>
                                 </>
                               ) : null}
                             </div>
