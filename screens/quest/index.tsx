@@ -139,7 +139,7 @@ const BackgroundImage = () => {
 
 export const QuestCardComponent = () => {
   const [currentPage, setCurrentPage] = useState(1);
-  const [activeTab, setActiveTab] = useState<"main" | "social" | "dapp" | "game">("main");
+  const [activeTab, setActiveTab] = useState<"social" | "dapp" | "game">("social");
   const [allQuests, setAllQuests] = useState(mockQuests);
   const [questProgress, setQuestProgress] = useState<Map<string, QuestWithProgress>>(new Map());
   const [userId, setUserId] = useState<string | null>(null);
@@ -231,7 +231,7 @@ export const QuestCardComponent = () => {
 
   const filteredQuests = allQuests.filter((q: any) => {
     if (activeTab === "social") return q.category === "social" || q.quest_type === "social";
-    if (activeTab === "main") return !q.category || q.category === "main" || q.quest_type === "main" || (!["social", "dapp", "game"].includes(q.category) && !["social", "dapp", "game"].includes(q.quest_type));
+    if (activeTab === "dapp") return q.category === "dapp" || q.quest_type === "dapp" || (!["social", "game"].includes(q.category) && !["social", "game"].includes(q.quest_type));
     return q.quest_type === activeTab || q.category === activeTab;
   });
 
@@ -289,12 +289,6 @@ export const QuestCardComponent = () => {
           className="absolute inset-0 z-0 h-full w-full object-fill"
         />
         <div className="relative z-50 mt-12 block space-x-4 px-4 pt-3 text-center">
-          <button
-            className={tabClass("main")}
-            onClick={() => setActiveTab("main")}
-          >
-            MAIN QUESTS
-          </button>
           <button
             className={tabClass("social")}
             onClick={() => setActiveTab("social")}
