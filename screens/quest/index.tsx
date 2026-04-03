@@ -139,7 +139,7 @@ const BackgroundImage = () => {
 
 export const QuestCardComponent = () => {
   const [currentPage, setCurrentPage] = useState(1);
-  const [activeTab, setActiveTab] = useState<"main" | "dapp" | "game">("main");
+  const [activeTab, setActiveTab] = useState<"main" | "social" | "dapp" | "game">("main");
   const [allQuests, setAllQuests] = useState(mockQuests);
   const [questProgress, setQuestProgress] = useState<Map<string, QuestWithProgress>>(new Map());
   const questsPerPage = 8;
@@ -177,6 +177,7 @@ export const QuestCardComponent = () => {
           xp_reward: q.xp_reward || 0,
           difficulty: q.difficulty || "easy",
           title: q.title,
+          action_params: q.action_params || {},
         }));
         setAllQuests(mapped);
 
@@ -204,9 +205,11 @@ export const QuestCardComponent = () => {
 
   useEffect(() => { setCurrentPage(1); }, [activeTab]);
 
-  const filteredQuests = allQuests.filter((q: any) =>
-    !q.quest_type || q.quest_type === activeTab || q.category === activeTab || activeTab === "main"
-  );
+  const filteredQuests = allQuests.filter((q: any) => {
+    if (activeTab === "social") return q.category === "social" || q.quest_type === "social";
+    if (activeTab === "main") return !q.category || q.category === "main" || q.quest_type === "main" || (!["social", "dapp", "game"].includes(q.category) && !["social", "dapp", "game"].includes(q.quest_type));
+    return q.quest_type === activeTab || q.category === activeTab;
+  });
 
   const totalPages = Math.ceil(filteredQuests.length / questsPerPage);
 
@@ -266,6 +269,12 @@ export const QuestCardComponent = () => {
             MAIN QUESTS
           </button>
           <button
+            className={tabClass("social")}
+            onClick={() => setActiveTab("social")}
+          >
+            SOCIAL
+          </button>
+          <button
             className={tabClass("dapp")}
             onClick={() => setActiveTab("dapp")}
           >
@@ -282,13 +291,22 @@ export const QuestCardComponent = () => {
         {/* Quest Grid */}
         <div className="relative mb-6 grid grid-cols-1 gap-2 p-2 sm:gap-4 sm:p-4 md:grid-cols-2">
           {currentQuests.map((quest: any) => (
-            <div key={quest.id} className="group relative cursor-pointer" onClick={() => handleQuestClick(quest.id)}>
+            <div
+              key={quest.id}
+              className="group relative cursor-pointer"
+              onClick={() => {
+                if (quest.action_params?.url && !quest.is_completed) {
+                  window.open(quest.action_params.url, "_blank", "noopener,noreferrer");
+                }
+                handleQuestClick(quest.id);
+              }}
+            >
               <Image
                 src={quest.image}
                 alt={quest.alt}
                 width={200}
                 height={200}
-                className={`w-full transition-all ${quest.is_completed ? "brightness-75" : "group-hover:scale-[1.02]"}`}
+                className={`w-full transition-all ${quest.is_completed && quest.is_claimed ? "brightness-50 saturate-50" : quest.is_completed ? "brightness-75" : "group-hover:scale-[1.02]"}`}
               />
               {/* Progress overlay */}
               {quest.progress !== undefined && quest.required_count > 1 && !quest.is_completed && (
@@ -305,19 +323,31 @@ export const QuestCardComponent = () => {
                   </div>
                 </div>
               )}
-              {/* Completed badge */}
-              {quest.is_completed && (
-                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
-                  <div className="rounded-lg bg-[#6DBB3E]/90 px-4 py-2">
-                    <span className="font-family-ThaleahFat text-xl tracking-wider text-white">COMPLETED ✓</span>
-                    {quest.xp_reward > 0 && (
-                      <p className="font-family-ThaleahFat text-center text-sm text-white/80">+{quest.xp_reward} XP</p>
-                    )}
+              {/* Completed + Claimed: subtle corner badge, card stays visible */}
+              {quest.is_completed && quest.is_claimed && (
+                <div className="absolute top-1 right-1 flex items-center gap-1 rounded bg-[#2d5a1e]/90 px-2 py-0.5 shadow-md">
+                  <span className="font-family-ThaleahFat text-[10px] tracking-wider text-[#8fce6a]">✓ CLAIMED</span>
+                  <span className="font-family-ThaleahFat text-[10px] text-white/50 line-through">+{quest.xp_reward} XP</span>
+                </div>
+              )}
+              {/* Completed but NOT claimed: glowing claim prompt */}
+              {quest.is_completed && !quest.is_claimed && (
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="animate-pulse rounded-lg border-2 border-[#feae34] bg-[#5a3a00]/90 px-4 py-2 shadow-[0_0_12px_rgba(254,174,52,0.5)]">
+                    <span className="font-family-ThaleahFat text-lg tracking-wider text-[#FFD700]">🎁 CLAIM +{quest.xp_reward} XP</span>
                   </div>
                 </div>
               )}
+              {/* Social quest: show link hint for uncompleted */}
+              {quest.action_params?.url && !quest.is_completed && (
+                <div className="absolute bottom-1.5 right-1.5">
+                  <span className="font-family-ThaleahFat rounded bg-[#1DA1F2]/90 px-2 py-0.5 text-[9px] tracking-wider text-white shadow">
+                    OPEN 𝕏 →
+                  </span>
+                </div>
+              )}
               {/* Difficulty badge */}
-              {quest.difficulty && quest.difficulty !== "easy" && (
+              {quest.difficulty && quest.difficulty !== "easy" && !quest.is_completed && (
                 <div className="absolute top-2 right-2">
                   <span className={`font-family-ThaleahFat rounded-sm px-1.5 py-0.5 text-[8px] uppercase ${
                     quest.difficulty === "legendary" ? "bg-purple-600 text-white" :
