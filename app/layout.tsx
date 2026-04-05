@@ -10,9 +10,9 @@ const GA_ID = "G-8968G1S4SC";
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://www.moleswap.com";
 
 export const metadata: Metadata = {
-  title: "MoleSwap - Decentralized Swap Game",
+  title: "MoleSwap - Dex Aggregator & AMM Protocol",
   description:
-    "A pixel-art themed decentralized application for token swapping with gamification elements. Powered by PushChain.",
+    "Dex Aggregator & AMM Protocol on PushChain. Swap tokens, earn XP, climb the leaderboard.",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -22,14 +22,14 @@ export const metadata: Metadata = {
     apple: "/apple-touch-icon.png",
   },
   openGraph: {
-    title: "MoleSwap - Decentralized Swap Game",
-    description: "Swap tokens, earn XP, climb the leaderboard. Powered by PushChain universal blockchain.",
+    title: "MoleSwap - Dex Aggregator & AMM Protocol",
+    description: "Dex Aggregator & AMM Protocol on PushChain. Swap tokens, earn XP, climb the leaderboard.",
     images: [
       {
         url: `${siteUrl}/mole-card.webp`,
         width: 1200,
         height: 630,
-        alt: "MoleSwap Game Card",
+        alt: "MoleSwap - Dex Aggregator & AMM Protocol",
       },
     ],
     type: "website",
@@ -37,8 +37,8 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "MoleSwap - Decentralized Swap Game",
-    description: "Swap tokens, earn XP, climb the leaderboard. Powered by PushChain.",
+    title: "MoleSwap - Dex Aggregator & AMM Protocol",
+    description: "Dex Aggregator & AMM Protocol on PushChain. Swap tokens, earn XP, climb the leaderboard.",
     images: [`${siteUrl}/mole-card.webp`],
     creator: "@moleswap",
   },
