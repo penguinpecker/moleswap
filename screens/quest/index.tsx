@@ -3,13 +3,14 @@ import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import React from "react";
 import { useState, useEffect } from "react";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import { NavBar } from "../shared";
 import { getQuests } from "@/lib/supabase/api";
 import { getQuestsWithProgress, type QuestWithProgress } from "@/lib/supabase/quests";
 import { usePushWalletContext, usePushChainClient, PushUI } from "@pushchain/ui-kit";
 import { getOrCreateUser } from "@/lib/supabase/api";
+import MoleWhack from "@/screens/MoleWhack";
 
 const mockQuests = [
   {
@@ -143,6 +144,8 @@ export const QuestCardComponent = () => {
   const [allQuests, setAllQuests] = useState(mockQuests);
   const [questProgress, setQuestProgress] = useState<Map<string, QuestWithProgress>>(new Map());
   const [userId, setUserId] = useState<string | null>(null);
+  const [showGame, setShowGame] = useState(false);
+  const [gameXp, setGameXp] = useState(0);
   const questsPerPage = 8;
 
   const walletCtx = usePushWalletContext();
@@ -240,16 +243,13 @@ export const QuestCardComponent = () => {
       }
       return q.quest_type === activeTab || q.category === activeTab;
     });
-    if (activeTab === "dapp") {
-      const seen = new Set<string>();
-      return raw.filter((q: any) => {
-        const key = (q.title || q.alt || "").toLowerCase().trim();
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    }
-    return raw;
+    const seen = new Set<string>();
+    return raw.filter((q: any) => {
+      const key = (q.title || q.alt || "").toLowerCase().trim();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   })();
 
   const totalPages = Math.ceil(filteredQuests.length / questsPerPage);
@@ -330,9 +330,11 @@ export const QuestCardComponent = () => {
         <div className="relative mb-6 grid grid-cols-1 gap-2 p-2 sm:gap-4 sm:p-4 md:grid-cols-2">
           {currentQuests.map((quest: any) => {
             const isSocial = quest.category === "social" || quest.quest_type === "social";
+            const isGame = quest.category === "game" || quest.quest_type === "game";
             const tweetId = quest.action_params?.tweetId;
             const getClickUrl = () => {
               if (quest.is_completed) return null;
+              if (isGame) return null;
               if (quest.action_type === "twitter_follow") return quest.action_params?.url || `https://x.com/intent/follow?screen_name=${quest.action_params?.handle?.replace("@", "")}`;
               if (quest.action_type === "twitter_like_rt" && tweetId) return `https://x.com/intent/like?tweet_id=${tweetId}`;
               if (quest.action_params?.url) return quest.action_params.url;
@@ -343,6 +345,11 @@ export const QuestCardComponent = () => {
                 key={quest.id}
                 className="group relative cursor-pointer"
                 onClick={() => {
+                  if (isGame && !quest.is_completed) {
+                    setGameXp(0);
+                    setShowGame(true);
+                    return;
+                  }
                   const url = getClickUrl();
                   if (url) window.open(url, "_blank", "noopener,noreferrer");
                   handleQuestClick(quest);
@@ -395,6 +402,23 @@ export const QuestCardComponent = () => {
           className="absolute bottom-[-5%] left-[-5%] w-[150px] object-cover max-sm:hidden"
         />
       </div>
+
+      {/* Whack-a-Mole Game Modal */}
+      {showGame && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 p-4">
+          <div className="relative aspect-square w-full max-w-[min(90vw,90vh)] overflow-hidden rounded-2xl border-4 border-[#523525] shadow-[8px_8px_0px_0px_#3E2723]">
+            <button
+              onClick={() => setShowGame(false)}
+              className="absolute top-3 right-3 z-[1000] flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-2 border-[#523525] bg-[#784834] text-white transition-transform hover:scale-110"
+            >
+              <X size={20} />
+            </button>
+            <MoleWhack
+              onMoleHit={(xpAmount) => setGameXp((prev) => prev + xpAmount)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 };
