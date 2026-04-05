@@ -7,7 +7,7 @@ import { ArrowLeft, ArrowRight, X } from "lucide-react";
 import { LucideIcon } from "lucide-react";
 import { NavBar } from "../shared";
 import { getQuests } from "@/lib/supabase/api";
-import { getQuestsWithProgress, type QuestWithProgress } from "@/lib/supabase/quests";
+import { getQuestsWithProgress, progressQuestsForAction, type QuestWithProgress } from "@/lib/supabase/quests";
 import { usePushWalletContext, usePushChainClient, PushUI } from "@pushchain/ui-kit";
 import { getOrCreateUser } from "@/lib/supabase/api";
 import MoleWhack from "@/screens/MoleWhack";
@@ -146,6 +146,7 @@ export const QuestCardComponent = () => {
   const [userId, setUserId] = useState<string | null>(null);
   const [showGame, setShowGame] = useState(false);
   const [gameXp, setGameXp] = useState(0);
+  const gameQuestTriggered = React.useRef(false);
   const questsPerPage = 8;
 
   const walletCtx = usePushWalletContext();
@@ -347,6 +348,7 @@ export const QuestCardComponent = () => {
                 onClick={() => {
                   if (isGame && !quest.is_completed) {
                     setGameXp(0);
+                    gameQuestTriggered.current = false;
                     setShowGame(true);
                     return;
                   }
@@ -408,13 +410,22 @@ export const QuestCardComponent = () => {
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/70 p-4">
           <div className="relative aspect-square w-full max-w-[min(90vw,90vh)] overflow-hidden rounded-2xl border-4 border-[#523525] shadow-[8px_8px_0px_0px_#3E2723]">
             <button
-              onClick={() => setShowGame(false)}
+              onClick={() => {
+                setShowGame(false);
+                loadQuests().catch(console.error);
+              }}
               className="absolute top-3 right-3 z-[1000] flex h-10 w-10 cursor-pointer items-center justify-center rounded-full border-2 border-[#523525] bg-[#784834] text-white transition-transform hover:scale-110"
             >
               <X size={20} />
             </button>
             <MoleWhack
-              onMoleHit={(xpAmount) => setGameXp((prev) => prev + xpAmount)}
+              onMoleHit={(xpAmount) => {
+                setGameXp((prev) => prev + xpAmount);
+                if (userId && !gameQuestTriggered.current) {
+                  gameQuestTriggered.current = true;
+                  progressQuestsForAction(userId, "game_play", { game: "whack_a_mole" }).catch(console.error);
+                }
+              }}
             />
           </div>
         </div>
