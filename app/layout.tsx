@@ -1,8 +1,11 @@
 import type React from "react";
 import type { Metadata } from "next";
+import Script from "next/script";
 import "./globals.css";
 import { ConditionalFooter } from "@/components/ConditionalFooter";
 import { PushChainWalletProvider } from "@/lib/pushchain/provider";
+
+const GA_ID = "G-8968G1S4SC";
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://www.moleswap.com";
 
@@ -48,6 +51,20 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
+      <head>
+        <Script
+          src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`}
+          strategy="afterInteractive"
+        />
+        <Script id="gtag-init" strategy="afterInteractive">
+          {`
+            window.dataLayer = window.dataLayer || [];
+            function gtag(){dataLayer.push(arguments);}
+            gtag('js', new Date());
+            gtag('config', '${GA_ID}');
+          `}
+        </Script>
+      </head>
       <body className="custom-scrollbar">
         <PushChainWalletProvider network="testnet">
           <div className="flex min-h-screen flex-col">

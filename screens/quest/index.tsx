@@ -229,11 +229,28 @@ export const QuestCardComponent = () => {
 
   useEffect(() => { setCurrentPage(1); }, [activeTab]);
 
-  const filteredQuests = allQuests.filter((q: any) => {
-    if (activeTab === "social") return q.category === "social" || q.quest_type === "social";
-    if (activeTab === "dapp") return q.category === "dapp" || q.quest_type === "dapp" || (!["social", "game"].includes(q.category) && !["social", "game"].includes(q.quest_type));
-    return q.quest_type === activeTab || q.category === activeTab;
-  });
+  const filteredQuests = (() => {
+    const raw = allQuests.filter((q: any) => {
+      if (activeTab === "social") return q.category === "social" || q.quest_type === "social";
+      if (activeTab === "dapp") {
+        const isDapp = q.category === "dapp" || q.quest_type === "dapp" || (!["social", "game"].includes(q.category) && !["social", "game"].includes(q.quest_type));
+        if (!isDapp) return false;
+        const title = (q.title || q.alt || "").toLowerCase();
+        return title.includes("swap");
+      }
+      return q.quest_type === activeTab || q.category === activeTab;
+    });
+    if (activeTab === "dapp") {
+      const seen = new Set<string>();
+      return raw.filter((q: any) => {
+        const key = (q.title || q.alt || "").toLowerCase().trim();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+    return raw;
+  })();
 
   const totalPages = Math.ceil(filteredQuests.length / questsPerPage);
 
