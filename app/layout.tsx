@@ -40,7 +40,7 @@ export const metadata: Metadata = {
     title: "MoleSwap - Dex Aggregator & AMM Protocol",
     description: "Dex Aggregator & AMM Protocol on PushChain. Swap tokens, earn XP, climb the leaderboard.",
     images: [`${siteUrl}/mole-card.webp`],
-    creator: "@moleswap",
+    creator: "@moleswapcom",
   },
 };
 

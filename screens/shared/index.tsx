@@ -219,22 +219,20 @@ export const Footer = () => {
             </span>
           </div>
 
-          {/* Copyright and Links */}
+          {/* Page Links */}
           <div className="flex flex-wrap items-center justify-center gap-3 text-base sm:gap-4 sm:text-lg">
-            <div className="flex items-center gap-2 sm:gap-3">
-              <Link href="/about" className={footerLinkClass("/about")}>About</Link>
-              <span className="text-peach-300/40">·</span>
-              <Link href="/terms" className={footerLinkClass("/terms")}>Terms</Link>
-              <span className="text-peach-300/40">·</span>
-              <Link href="/privacy" className={footerLinkClass("/privacy")}>Privacy</Link>
-            </div>
+            <Link href="/about" className={footerLinkClass("/about")}>ABOUT</Link>
+            <span className="font-family-ThaleahFat text-peach-300/40 text-xl">·</span>
+            <Link href="/terms" className={footerLinkClass("/terms")}>TERMS</Link>
+            <span className="font-family-ThaleahFat text-peach-300/40 text-xl">·</span>
+            <Link href="/privacy" className={footerLinkClass("/privacy")}>PRIVACY</Link>
             <p className="font-family-ThaleahFat text-peach-300/60 text-lg font-light sm:text-2xl">
               follow us on
             </p>
             {/* Social Links */}
             <div className="flex items-center gap-3">
               <Link
-                href="https://twitter.com/moleswap"
+                href="https://x.com/moleswapcom"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="group relative flex h-8 w-8 items-center justify-center transition-all hover:scale-110 sm:h-10 sm:w-10"
