@@ -245,13 +245,13 @@ export const QuestCardComponent = () => {
       return q.quest_type === activeTab || q.category === activeTab;
     });
     const seenIds = new Set<string>();
-    const seenTitles = new Set<string>();
+    const seenKeys = new Set<string>();
     return raw.filter((q: any) => {
       if (seenIds.has(q.id)) return false;
       const titleKey = (q.title || q.alt || "").toLowerCase().trim();
-      if (titleKey && seenTitles.has(titleKey)) return false;
+      if (titleKey && seenKeys.has(titleKey)) return false;
       seenIds.add(q.id);
-      if (titleKey) seenTitles.add(titleKey);
+      if (titleKey) seenKeys.add(titleKey);
       return true;
     });
   })();
@@ -368,15 +368,8 @@ export const QuestCardComponent = () => {
                   className="w-full transition-all group-hover:scale-[1.02]"
                 />
                 {quest.is_completed && (
-                  <div className="absolute top-0 right-0 flex h-full w-[14%] items-center justify-center">
-                    <Image
-                      src="/quest/green-check.png"
-                      alt="Completed"
-                      width={55}
-                      height={50}
-                      className="object-contain"
-                      style={{ imageRendering: "pixelated" }}
-                    />
+                  <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/50">
+                    <span className="font-family-ThaleahFat text-peach-300 text-lg tracking-wider sm:text-2xl">COMPLETED</span>
                   </div>
                 )}
               </div>

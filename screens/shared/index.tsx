@@ -221,6 +221,13 @@ export const Footer = () => {
 
           {/* Copyright and Links */}
           <div className="flex flex-wrap items-center justify-center gap-3 text-base sm:gap-4 sm:text-lg">
+            <div className="flex items-center gap-2 sm:gap-3">
+              <Link href="/about" className={footerLinkClass("/about")}>About</Link>
+              <span className="text-peach-300/40">·</span>
+              <Link href="/terms" className={footerLinkClass("/terms")}>Terms</Link>
+              <span className="text-peach-300/40">·</span>
+              <Link href="/privacy" className={footerLinkClass("/privacy")}>Privacy</Link>
+            </div>
             <p className="font-family-ThaleahFat text-peach-300/60 text-lg font-light sm:text-2xl">
               follow us on
             </p>
