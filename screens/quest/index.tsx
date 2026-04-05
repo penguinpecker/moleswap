@@ -244,11 +244,14 @@ export const QuestCardComponent = () => {
       }
       return q.quest_type === activeTab || q.category === activeTab;
     });
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
+    const seenTitles = new Set<string>();
     return raw.filter((q: any) => {
-      const key = (q.title || q.alt || "").toLowerCase().trim();
-      if (seen.has(key)) return false;
-      seen.add(key);
+      if (seenIds.has(q.id)) return false;
+      const titleKey = (q.title || q.alt || "").toLowerCase().trim();
+      if (titleKey && seenTitles.has(titleKey)) return false;
+      seenIds.add(q.id);
+      if (titleKey) seenTitles.add(titleKey);
       return true;
     });
   })();
@@ -364,6 +367,18 @@ export const QuestCardComponent = () => {
                   height={92}
                   className="w-full transition-all group-hover:scale-[1.02]"
                 />
+                {quest.is_completed && (
+                  <div className="absolute top-0 right-0 flex h-full w-[14%] items-center justify-center">
+                    <Image
+                      src="/quest/green-check.png"
+                      alt="Completed"
+                      width={55}
+                      height={50}
+                      className="object-contain"
+                      style={{ imageRendering: "pixelated" }}
+                    />
+                  </div>
+                )}
               </div>
             );
           })}
