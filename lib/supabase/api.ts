@@ -63,13 +63,27 @@ export async function getLeaderboard(limit = 50, offset = 0) {
 export async function getUserRank(walletAddress: string) {
   if (!supabase) return null;
   
-  const { data } = await supabase
+  // Fetch all users sorted by XP to compute rank dynamically
+  // This matches how the leaderboard page computes ranks
+  const { data: allUsers } = await supabase
     .from("users")
-    .select("current_rank, best_rank, total_xp")
-    .eq("wallet_address", walletAddress.toLowerCase())
-    .single();
+    .select("wallet_address, total_xp")
+    .gt("total_xp", 0)
+    .order("total_xp", { ascending: false });
 
-  return data;
+  if (!allUsers || allUsers.length === 0) return null;
+
+  const idx = allUsers.findIndex(
+    (u: any) => u.wallet_address?.toLowerCase() === walletAddress.toLowerCase()
+  );
+
+  if (idx === -1) return null;
+
+  return {
+    current_rank: idx + 1,
+    best_rank: idx + 1,
+    total_xp: allUsers[idx].total_xp || 0,
+  };
 }
 
 // ============================================

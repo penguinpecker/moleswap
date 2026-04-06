@@ -258,7 +258,7 @@ const ProfileCard = () => {
             <Share2 className="text-peach-300 group-hover:text-peach-400 relative z-10 h-4 w-4 transition-colors sm:h-6 sm:w-6" />
           </button>
           <Link
-            href="https://twitter.com/moleswap"
+            href="https://x.com/moleswapcom"
             target="_blank"
             rel="noopener noreferrer"
             className="group relative ml-auto flex h-9 w-9 items-center justify-center rounded-lg border-2 border-[#3A1F0E] bg-black/20 transition-all hover:scale-105 sm:h-10 sm:w-10"
