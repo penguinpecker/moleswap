@@ -78,18 +78,41 @@ async function sendTx(
   if (typeof window !== "undefined" && (window as any).ethereum) {
     try {
       const provider = new ethers.BrowserProvider((window as any).ethereum);
-      const signer = await provider.getSigner();
       const network = await provider.getNetwork();
-      if (Number(network.chainId) === PUSHCHAIN_CHAIN_ID) {
-        console.log("[MoleSwap] Using direct EVM signing (msg.sender = user)");
-        const sent = await signer.sendTransaction({
-          to: tx.to,
-          value: tx.value,
-          data: tx.data || "0x",
-        });
-        const receipt = await sent.wait();
-        return receipt?.hash || sent.hash;
+      if (Number(network.chainId) !== PUSHCHAIN_CHAIN_ID) {
+        try {
+          await (window as any).ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: "0xa475" }],
+          });
+        } catch (switchErr: any) {
+          if (switchErr.code === 4902) {
+            await (window as any).ethereum.request({
+              method: "wallet_addEthereumChain",
+              params: [{
+                chainId: "0xa475",
+                chainName: "Push Chain Donut Testnet",
+                nativeCurrency: { name: "Push Chain", symbol: "PC", decimals: 18 },
+                rpcUrls: ["https://evm.donut.rpc.push.org/"],
+                blockExplorerUrls: ["https://donut.push.network/"],
+              }],
+            });
+          } else {
+            throw new Error(
+              "Please switch to PushChain (chain 42101) to complete this transaction."
+            );
+          }
+        }
       }
+      const signer = await provider.getSigner();
+      console.log("[MoleSwap] Using direct EVM signing (msg.sender = user)");
+      const sent = await signer.sendTransaction({
+        to: tx.to,
+        value: tx.value,
+        data: tx.data || "0x",
+      });
+      const receipt = await sent.wait();
+      return receipt?.hash || sent.hash;
     } catch (e: any) {
       console.warn("[MoleSwap] Direct EVM signing failed:", e?.message);
       if (tx.value > 0n) {
