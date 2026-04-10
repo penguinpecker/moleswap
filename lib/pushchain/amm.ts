@@ -91,8 +91,19 @@ async function sendTx(
         return receipt?.hash || sent.hash;
       }
     } catch (e: any) {
-      console.warn("[MoleSwap] Direct EVM signing failed, falling back to Universal TX:", e?.message);
+      console.warn("[MoleSwap] Direct EVM signing failed:", e?.message);
+      if (tx.value > 0n) {
+        throw new Error(
+          "Native PC transactions require a direct EVM wallet (e.g. MetaMask) connected to PushChain (chain 42101). " +
+          "Universal TX cannot forward native value. Please switch to MetaMask or add PushChain network."
+        );
+      }
     }
+  }
+  if (tx.value > 0n) {
+    throw new Error(
+      "No EVM wallet detected. Native PC transactions (wrap/unwrap) require MetaMask or a compatible wallet connected to PushChain (chain 42101)."
+    );
   }
   console.log("[MoleSwap] Using Universal TX (Cosmos-wrapped EVM)");
   return sendUniversalTx(pushChainClient, tx, options);
