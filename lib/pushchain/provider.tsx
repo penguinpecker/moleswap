@@ -53,6 +53,10 @@ export function PushChainWalletProvider({ children, network = "testnet" }: Props
       google: true,
       wallet: {
         enabled: true,
+        chains: [
+          PushUI.CONSTANTS.CHAIN.PUSH,
+          PushUI.CONSTANTS.CHAIN.ETHEREUM,
+        ],
       },
       appPreview: true,
     },
