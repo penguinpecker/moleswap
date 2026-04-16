@@ -573,16 +573,19 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   }, [quote]);
   const isPushChainSwap = fromChainId === toChainId && String(fromChainId) === "42101";
 
-  // Detect if swap involves a thin liquidity pool
+  // Detect if swap involves a thin liquidity pool — only warn when the user's
+  // selected token IS the thin-liquidity token (not WPC, which appears in every pool)
   const thinPoolWarning = useMemo(() => {
     if (!fromToken || !toToken) return null;
     const actualFrom = fromToken === "0x0000000000000000000000000000000000000000" ? CONTRACTS.WPC : fromToken;
     const actualTo = toToken === "0x0000000000000000000000000000000000000000" ? CONTRACTS.WPC : toToken;
-    const thinPool = POOLS.find(p =>
-      p.thinLiquidity &&
-      ((p.token0.toLowerCase() === actualFrom.toLowerCase() || p.token1.toLowerCase() === actualFrom.toLowerCase()) ||
-       (p.token0.toLowerCase() === actualTo.toLowerCase() || p.token1.toLowerCase() === actualTo.toLowerCase()))
-    );
+    const wpc = CONTRACTS.WPC.toLowerCase();
+    // For each thin pool, check if the non-WPC token matches from or to
+    const thinPool = POOLS.find(p => {
+      if (!p.thinLiquidity) return false;
+      const thinToken = p.token0.toLowerCase() === wpc ? p.token1.toLowerCase() : p.token0.toLowerCase();
+      return thinToken === actualFrom.toLowerCase() || thinToken === actualTo.toLowerCase();
+    });
     return thinPool ? `${thinPool.name} has very low liquidity — expect high slippage or failed swaps.` : null;
   }, [fromToken, toToken]);
 
