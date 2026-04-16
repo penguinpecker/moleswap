@@ -275,35 +275,46 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   }, []);
 
   // ----- Derived chain/token lists (kept) -----
+  // Since all virtual chains share id=42101, find the chain GROUP containing
+  // the selected token (not just the first chain matching the id).
+  const allTokens = useMemo(
+    () => chains.flatMap((c) => getTokensForChain(c)),
+    [chains],
+  );
+
   const fromChain = useMemo(
-    () => chains.find((c) => String(c.id) === fromChainId),
-    [chains, fromChainId],
+    () => chains.find((c) =>
+      getTokensForChain(c).some((t) => t.address?.toLowerCase() === fromToken.toLowerCase())
+    ) || chains.find((c) => String(c.id) === fromChainId) || chains[0],
+    [chains, fromChainId, fromToken],
   );
   const toChain = useMemo(
-    () => chains.find((c) => String(c.id) === toChainId),
-    [chains, toChainId],
+    () => chains.find((c) =>
+      getTokensForChain(c).some((t) => t.address?.toLowerCase() === toToken.toLowerCase())
+    ) || chains.find((c) => String(c.id) === toChainId) || chains[0],
+    [chains, toChainId, toToken],
   );
 
   const fromTokens = useMemo(
-    () => (fromChain ? getTokensForChain(fromChain) : []),
-    [fromChain],
+    () => allTokens,
+    [allTokens],
   );
   const toTokens = useMemo(
-    () => (toChain ? getTokensForChain(toChain) : []),
-    [toChain],
+    () => allTokens,
+    [allTokens],
   );
 
   const fromTokenMeta = useMemo(
     () =>
-      fromTokens.find(
+      allTokens.find(
         (t) => t.address?.toLowerCase() === fromToken.toLowerCase(),
       ),
-    [fromTokens, fromToken],
+    [allTokens, fromToken],
   );
   const toTokenMeta = useMemo(
     () =>
-      toTokens.find((t) => t.address?.toLowerCase() === toToken.toLowerCase()),
-    [toTokens, toToken],
+      allTokens.find((t) => t.address?.toLowerCase() === toToken.toLowerCase()),
+    [allTokens, toToken],
   );
 
   // ----- Amount -> wei (kept) -----
@@ -879,19 +890,17 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   }, [walletAddress, fromChainId, fromToken, fromTokenMeta?.decimals, chains]);
 
   // ----- Modal select logic -----
-  // open modal: seed selectedNetwork with current chain for side
-  // selectedNetwork stores chain NAME (not id) since all virtual chains share id=42101
+  // open modal: seed selectedNetwork with the chain group containing the current token
   const openSelect = (mode: SelectionMode) => {
     setSelectionMode(mode);
     setSearchQuery("");
     setSearchQueryNetwork("");
-    // Default to first chain (Push Chain) — user can switch in the network panel
-    const defaultChain = chains[0]?.name || "";
-    if (mode === "from" || mode === "to") {
-      setSelectedNetwork(defaultChain);
-    } else {
-      setSelectedNetwork("");
-    }
+    // Find the chain group that contains the currently selected token for this side
+    const currentToken = mode === "from" ? fromToken : toToken;
+    const matchedChain = chains.find((c) =>
+      getTokensForChain(c).some((t) => t.address?.toLowerCase() === currentToken?.toLowerCase())
+    );
+    setSelectedNetwork(matchedChain?.name || chains[0]?.name || "");
   };
 
   const handleBackToExchange = () => {
