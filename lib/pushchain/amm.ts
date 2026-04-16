@@ -105,20 +105,31 @@ async function sendTx(
         }
       }
       const signer = await provider.getSigner();
+      // PushChain RPC only accepts legacy (type 0) txs — ethers v6 + MetaMask
+      // defaults to EIP-1559 (type 2), which gets rejected. Force type 0 with
+      // explicit gasPrice pulled from the node.
+      const feeData = await provider.getFeeData();
+      const gasPrice = feeData.gasPrice ?? ethers.parseUnits("1", "gwei");
       console.log("[MoleSwap] Using direct EVM signing (msg.sender = user)");
       const sent = await signer.sendTransaction({
         to: tx.to,
         value: tx.value,
         data: tx.data || "0x",
+        type: 0,
+        gasPrice,
       });
       const receipt = await sent.wait();
       return receipt?.hash || sent.hash;
     } catch (e: any) {
-      console.warn("[MoleSwap] Direct EVM signing failed:", e?.message);
+      console.warn("[MoleSwap] Direct EVM signing failed:", e?.code, e?.shortMessage || e?.message, e);
+      // User rejected — surface that directly, don't dress it up as a wallet config error.
+      if (e?.code === "ACTION_REJECTED" || e?.code === 4001) {
+        throw new Error("Transaction rejected in wallet.");
+      }
       if (tx.value > 0n) {
         throw new Error(
-          "Native PC transactions require a direct EVM wallet (e.g. MetaMask) connected to PushChain (chain 42101). " +
-          "Universal TX cannot forward native value. Please switch to MetaMask or add PushChain network."
+          `Native PC tx failed via direct EVM signer: ${e?.shortMessage || e?.message || "unknown error"}. ` +
+          `Ensure your wallet (e.g. MetaMask) is connected to PushChain (chain 42101).`
         );
       }
     }
@@ -481,8 +492,9 @@ export async function executeSwap(params: {
     if (needsApproval) {
       onStep(1, "APPROVE TOKEN", "signing");
       const approveIface = new ethers.Interface(["function approve(address spender, uint256 amount) returns (bool)"]);
-      const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
-      const approveData = approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, MAX_UINT]);
+      // Approve only what's needed for this swap, not MAX_UINT — users should
+      // not be prompted for unlimited approval.
+      const approveData = approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, amountIn]);
       
       const approveTx = await sendTx(params.pushChainClient, {
         to: tokenToApprove, value: BigInt(0), data: approveData,
