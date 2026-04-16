@@ -312,15 +312,26 @@ export async function estimateSwapDetails(params: {
       }
 
       const pool = findPool(actualIn, actualOut);
-      const fee = pool?.fee || 500;
-      const iface = new ethers.Interface(FEE_ROUTER_ABI);
-      const swapData = iface.encodeFunctionData("swapExactInputSingle", [
-        actualIn, actualOut, fee, amountIn, 0, Math.floor(Date.now() / 1000) + 1800, 0,
-      ]);
-      const gas = await provider.estimateGas({
-        from: params.recipient, to: CONTRACTS.MOLESWAP_FEE_ROUTER, data: swapData,
-      }).then(g => Number(g)).catch(() => 150000);
-      steps.push({ label: "Swap tokens", gas });
+      const needsMultiHop = !pool && actualIn.toLowerCase() !== CONTRACTS.WPC.toLowerCase() && actualOut.toLowerCase() !== CONTRACTS.WPC.toLowerCase();
+
+      if (needsMultiHop) {
+        const poolA = findPool(actualIn, CONTRACTS.WPC);
+        const poolB = findPool(actualOut, CONTRACTS.WPC);
+        // Two hops + extra approve for WPC between hops
+        steps.push({ label: "Swap → WPC", gas: 180000 });
+        steps.push({ label: "Approve WPC", gas: 27000 });
+        steps.push({ label: "Swap WPC →", gas: 180000 });
+      } else {
+        const fee = pool?.fee || 500;
+        const iface = new ethers.Interface(FEE_ROUTER_ABI);
+        const swapData = iface.encodeFunctionData("swapExactInputSingle", [
+          actualIn, actualOut, fee, amountIn, 0, Math.floor(Date.now() / 1000) + 1800, 0,
+        ]);
+        const gas = await provider.estimateGas({
+          from: params.recipient, to: CONTRACTS.MOLESWAP_FEE_ROUTER, data: swapData,
+        }).then(g => Number(g)).catch(() => 150000);
+        steps.push({ label: "Swap tokens", gas });
+      }
     }
 
     let blockTime = 1.4;
@@ -522,6 +533,65 @@ export async function executeSwap(params: {
     onStep(1, "APPROVE TOKEN", "confirmed");
 
     // ═══ STEP 3: Execute swap via MoleSwap FeeRouter ═══
+    // Detect multi-hop: if neither token is WPC, route through WPC as intermediary
+    const needsMultiHop = actualIn.toLowerCase() !== CONTRACTS.WPC.toLowerCase() &&
+                          actualOut.toLowerCase() !== CONTRACTS.WPC.toLowerCase() &&
+                          !findPool(actualIn, actualOut);
+
+    if (needsMultiHop) {
+      // ── Multi-hop: tokenIn → WPC → tokenOut ──
+      const poolA = findPool(actualIn, CONTRACTS.WPC);
+      const poolB = findPool(actualOut, CONTRACTS.WPC);
+      if (!poolA || !poolB) throw new Error(`No route found: no pool for ${actualIn.slice(0,10)} or ${actualOut.slice(0,10)} against WPC`);
+
+      // Hop 1: tokenIn → WPC
+      onStep(2, "SWAP → WPC", "signing");
+      const iface = new ethers.Interface(FEE_ROUTER_ABI);
+      const hop1Data = iface.encodeFunctionData("swapExactInputSingle", [
+        actualIn, CONTRACTS.WPC, poolA.fee, amountIn, 0n, deadline, 0,
+      ]);
+      const hop1Result = await sendTx(params.pushChainClient, {
+        to: CONTRACTS.MOLESWAP_FEE_ROUTER, value: BigInt(0), data: hop1Data,
+      }, uOpts);
+      console.log("[MoleSwap] Multi-hop leg 1 (→ WPC):", extractHash(hop1Result));
+      onStep(2, "SWAP → WPC", "confirmed");
+
+      // Wait for hop 1 to settle, then read WPC balance for hop 2 amount
+      await new Promise(r => setTimeout(r, 4000));
+      const readProvider = getProvider();
+      const wpcToken = new ethers.Contract(CONTRACTS.WPC, ERC20_ABI, readProvider);
+      const wpcBalance = await wpcToken.balanceOf(params.recipient).catch(() => 0n);
+
+      // Approve WPC to FeeRouter for hop 2
+      onStep(3, "APPROVE WPC", "signing");
+      const approveIface = new ethers.Interface(["function approve(address,uint256) returns (bool)"]);
+      let wpcAllowance = 0n;
+      try { wpcAllowance = await wpcToken.allowance(params.recipient, CONTRACTS.MOLESWAP_FEE_ROUTER); } catch {}
+      if (wpcAllowance < wpcBalance) {
+        await sendTx(params.pushChainClient, {
+          to: CONTRACTS.WPC, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, wpcBalance]),
+        }, uOpts);
+        await new Promise(r => setTimeout(r, 4000));
+      }
+      onStep(3, "APPROVE WPC", "confirmed");
+
+      // Hop 2: WPC → tokenOut
+      onStep(4, "SWAP WPC →", "signing");
+      const hop2Data = iface.encodeFunctionData("swapExactInputSingle", [
+        CONTRACTS.WPC, actualOut, poolB.fee, wpcBalance, amountOutMin, deadline, 0,
+      ]);
+      const hop2Result = await sendTx(params.pushChainClient, {
+        to: CONTRACTS.MOLESWAP_FEE_ROUTER, value: BigInt(0), data: hop2Data,
+      }, uOpts);
+      const txHash = extractHash(hop2Result);
+      console.log("[MoleSwap] Multi-hop leg 2 (WPC →):", txHash);
+
+      if (!txHash) throw new Error("Multi-hop swap leg 2 returned empty hash");
+      onStep(4, "SWAP WPC →", "confirmed");
+      return { txHash, success: true };
+    }
+
+    // ── Single-hop: direct pool exists ──
     onStep(2, "SWAP TOKENS", "signing");
     const iface = new ethers.Interface(FEE_ROUTER_ABI);
     const swapCalldata = iface.encodeFunctionData("swapExactInputSingle", [
