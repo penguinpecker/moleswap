@@ -66,21 +66,20 @@ async function sendUniversalTx(
 }
 
 // ═══ HELPER: Send EVM tx preferring direct signing over Universal TX ═══
-// Universal TX routes through a Cosmos executor contract, making msg.sender
-// the executor — not the user. This breaks WETH deposit/withdraw (credits
-// wrong address), ERC20 approve (sets wrong allowance), and transferFrom
-// (pulls from wrong address). Direct EVM signing keeps msg.sender = user.
+// Direct EVM signing keeps msg.sender = user, which is required for
+// approve/transferFrom and WETH deposit/withdraw. Universal TX routes
+// through a Cosmos executor where msg.sender ≠ user.
+// Strategy: try direct EVM first, fall back to universal TX for non-value
+// txs. For value > 0 (wraps), warn but still attempt universal TX as last resort.
 async function sendTx(
   pushChainClient: any,
   tx: { to: string; value: bigint; data?: string },
   options?: UniversalTxOptions,
 ): Promise<any> {
+  // ── Attempt 1: Direct EVM via injected wallet (MetaMask etc.) ──
   if (typeof window !== "undefined" && (window as any).ethereum) {
     try {
       const eth = (window as any).ethereum;
-      // Check chain via eth_chainId BEFORE creating a BrowserProvider —
-      // creating one while on the wrong chain and switching mid-call causes
-      // ethers to throw NETWORK_ERROR ("network changed: X => 42101").
       const currentChainHex: string = await eth.request({ method: "eth_chainId" });
       if (currentChainHex.toLowerCase() !== "0xa475") {
         try {
@@ -101,49 +100,41 @@ async function sendTx(
               }],
             });
           } else {
-            throw new Error(
-              "Please switch to PushChain (chain 42101) to complete this transaction."
-            );
+            // Can't switch chain — fall through to universal TX instead of hard-blocking
+            console.warn("[MoleSwap] Chain switch rejected, will try universal TX");
           }
         }
       }
-      // Instantiate provider AFTER the chain is confirmed on 42101.
-      const provider = new ethers.BrowserProvider(eth);
-      const signer = await provider.getSigner();
-      // PushChain RPC only accepts legacy (type 0) txs. Pull gasPrice via
-      // eth_gasPrice directly — calling provider.getFeeData() makes ethers v6
-      // probe eth_maxPriorityFeePerGas first, which MetaMask logs as an RPC
-      // error even though it falls back cleanly.
-      const gasPriceHex: string = await eth.request({ method: "eth_gasPrice" });
-      const gasPrice = BigInt(gasPriceHex);
-      console.log("[MoleSwap] Using direct EVM signing (msg.sender = user)");
-      const sent = await signer.sendTransaction({
-        to: tx.to,
-        value: tx.value,
-        data: tx.data || "0x",
-        type: 0,
-        gasPrice,
-      });
-      const receipt = await sent.wait();
-      return receipt?.hash || sent.hash;
+      // Re-check chain after switch attempt
+      const verifyChain: string = await eth.request({ method: "eth_chainId" }).catch(() => "0x0");
+      if (verifyChain.toLowerCase() === "0xa475") {
+        const provider = new ethers.BrowserProvider(eth);
+        const signer = await provider.getSigner();
+        const gasPriceHex: string = await eth.request({ method: "eth_gasPrice" });
+        const gasPrice = BigInt(gasPriceHex);
+        console.log("[MoleSwap] Using direct EVM signing (msg.sender = user)");
+        const sent = await signer.sendTransaction({
+          to: tx.to,
+          value: tx.value,
+          data: tx.data || "0x",
+          type: 0,
+          gasPrice,
+        });
+        const receipt = await sent.wait();
+        return receipt?.hash || sent.hash;
+      }
     } catch (e: any) {
-      console.warn("[MoleSwap] Direct EVM signing failed:", e?.code, e?.shortMessage || e?.message, e);
-      // User rejected — surface that directly, don't dress it up as a wallet config error.
+      console.warn("[MoleSwap] Direct EVM signing failed:", e?.code, e?.shortMessage || e?.message);
       if (e?.code === "ACTION_REJECTED" || e?.code === 4001) {
         throw new Error("Transaction rejected in wallet.");
       }
-      if (tx.value > 0n) {
-        throw new Error(
-          `Native PC tx failed via direct EVM signer: ${e?.shortMessage || e?.message || "unknown error"}. ` +
-          `Ensure your wallet (e.g. MetaMask) is connected to PushChain (chain 42101).`
-        );
-      }
+      // Don't hard-block — fall through to universal TX
     }
   }
+
+  // ── Attempt 2: Universal TX (works from any chain wallet) ──
   if (tx.value > 0n) {
-    throw new Error(
-      "No EVM wallet detected. Native PC transactions (wrap/unwrap) require MetaMask or a compatible wallet connected to PushChain (chain 42101)."
-    );
+    console.warn("[MoleSwap] Attempting native-value tx via Universal TX — this may fail if executor can't forward value.");
   }
   console.log("[MoleSwap] Using Universal TX (Cosmos-wrapped EVM)");
   return sendUniversalTx(pushChainClient, tx, options);

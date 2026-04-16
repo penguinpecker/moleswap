@@ -6,7 +6,7 @@ import Image from "next/image";
 import { getChains, getTokensForChain, type RelayChain } from "@/lib/relay/api";
 import { relayClient } from "@/lib/relay/client";
 import { usePushWallet } from "@/lib/pushchain/provider";
-import { getTokenByAddress } from "@/lib/pushchain/contracts";
+import { getTokenByAddress, POOLS, CONTRACTS } from "@/lib/pushchain/contracts";
 import { estimateSwapDetails } from "@/lib/pushchain/amm";
 import { getOrCreateUser, getUserSwapHistory } from "@/lib/supabase/api";
 import { getTokenBalance } from "@/lib/wallet/walletClient";
@@ -561,6 +561,20 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     return usd ? `$${Number(usd).toFixed(2)} fees` : undefined;
   }, [quote]);
   const isPushChainSwap = fromChainId === toChainId && String(fromChainId) === "42101";
+
+  // Detect if swap involves a thin liquidity pool
+  const thinPoolWarning = useMemo(() => {
+    if (!fromToken || !toToken) return null;
+    const actualFrom = fromToken === "0x0000000000000000000000000000000000000000" ? CONTRACTS.WPC : fromToken;
+    const actualTo = toToken === "0x0000000000000000000000000000000000000000" ? CONTRACTS.WPC : toToken;
+    const thinPool = POOLS.find(p =>
+      p.thinLiquidity &&
+      ((p.token0.toLowerCase() === actualFrom.toLowerCase() || p.token1.toLowerCase() === actualFrom.toLowerCase()) ||
+       (p.token0.toLowerCase() === actualTo.toLowerCase() || p.token1.toLowerCase() === actualTo.toLowerCase()))
+    );
+    return thinPool ? `${thinPool.name} has very low liquidity — expect high slippage or failed swaps.` : null;
+  }, [fromToken, toToken]);
+
   const feesDisplayLabel = feesLabel || (isPushChainSwap && quote
     ? (pushEstimate ? `~${(pushEstimate.totalGas / 1000).toFixed(0)}k gas • 0.25% fee` : "~0.25% fee")
     : undefined);
@@ -866,14 +880,15 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
 
   // ----- Modal select logic -----
   // open modal: seed selectedNetwork with current chain for side
+  // selectedNetwork stores chain NAME (not id) since all virtual chains share id=42101
   const openSelect = (mode: SelectionMode) => {
     setSelectionMode(mode);
     setSearchQuery("");
     setSearchQueryNetwork("");
-    if (mode === "from") {
-      setSelectedNetwork(fromChainId || "");
-    } else if (mode === "to") {
-      setSelectedNetwork(toChainId || "");
+    // Default to first chain (Push Chain) — user can switch in the network panel
+    const defaultChain = chains[0]?.name || "";
+    if (mode === "from" || mode === "to") {
+      setSelectedNetwork(defaultChain);
     } else {
       setSelectedNetwork("");
     }
@@ -897,7 +912,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
 
   // Tokens for the currently selected network in the modal
   const modalChain =
-    chains.find((c) => String(c.id) === String(selectedNetwork)) || null;
+    chains.find((c) => c.name === selectedNetwork) || null;
   const modalTokens = useMemo(
     () => (modalChain ? getTokensForChain(modalChain) : []),
     [modalChain],
@@ -924,12 +939,12 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     let cancelled = false;
 
     const fetchTokenBalances = async () => {
-      const chainId = Number(selectedNetwork);
+      const chainId = modalChain?.id || 42101;
       const vmType = modalChain.vmType;
 
       // Filter tokens that need balance fetching (not already cached, loading, or previously fetched)
       const tokensToFetch = filteredModalTokens.filter((token) => {
-        const balanceKey = `${chainId}-${token.address}`;
+        const balanceKey = `${selectedNetwork}-${token.address}`;
         // Skip if already fetched, cached, or currently loading
         return (
           !fetchedBalancesRef.current.has(balanceKey) &&
@@ -942,7 +957,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
 
       // Mark as fetched to prevent duplicate requests
       tokensToFetch.forEach((token) => {
-        const balanceKey = `${chainId}-${token.address}`;
+        const balanceKey = `${selectedNetwork}-${token.address}`;
         fetchedBalancesRef.current.add(balanceKey);
       });
 
@@ -950,7 +965,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       setLoadingBalances((prev) => {
         const newState = { ...prev };
         tokensToFetch.forEach((token) => {
-          const balanceKey = `${chainId}-${token.address}`;
+          const balanceKey = `${selectedNetwork}-${token.address}`;
           newState[balanceKey] = true;
         });
         return newState;
@@ -960,7 +975,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       const balancePromises = tokensToFetch.map(async (token) => {
         if (cancelled) return null;
 
-        const balanceKey = `${chainId}-${token.address}`;
+        const balanceKey = `${selectedNetwork}-${token.address}`;
 
         try {
           const balance = await getTokenBalance(
@@ -1001,7 +1016,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
         setLoadingBalances((prev) => {
           const newState = { ...prev };
           tokensToFetch.forEach((token) => {
-            const balanceKey = `${chainId}-${token.address}`;
+            const balanceKey = `${selectedNetwork}-${token.address}`;
             delete newState[balanceKey];
           });
           return newState;
@@ -1031,17 +1046,18 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     fetchedBalancesRef.current.clear();
   }, [selectedNetwork]);
 
-  const handleSelectNetwork = (id: string) => {
-    setSelectedNetwork(id);
+  const handleSelectNetwork = (chainName: string) => {
+    setSelectedNetwork(chainName);
   };
 
   const handleSelectToken = (tokenAddress: string) => {
     if (!selectedNetwork) return;
+    // All tokens live on PushChain — always set chainId to 42101
     if (selectionMode === "from") {
-      setFromChainId(String(selectedNetwork));
+      setFromChainId("42101");
       setFromToken(tokenAddress);
     } else if (selectionMode === "to") {
-      setToChainId(String(selectedNetwork));
+      setToChainId("42101");
       setToToken(tokenAddress);
     }
     setSelectionMode("none");
@@ -1278,8 +1294,8 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                 ) : filteredNetworks.length > 0 ? (
                   filteredNetworks.map((network) => (
                     <button
-                      key={network.id}
-                      onClick={() => handleSelectNetwork(String(network.id))}
+                      key={network.name}
+                      onClick={() => handleSelectNetwork(network.name)}
                       className={`relative cursor-pointer px-6 py-4 text-left`}
                     >
                       <div className="flex items-center justify-start gap-4 transition-all hover:scale-[1.02]">
@@ -1304,7 +1320,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                       </div>
                       <Image
                         src={
-                          selectedNetwork === String(network.id)
+                          selectedNetwork === network.name
                             ? "/dapp/selected-network-bg.png"
                             : "/quest/header-quest-bg.png"
                         }
@@ -1693,22 +1709,38 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                     />
                   </button>
                 ) : (
-                  <button
-                    onClick={handleReviewSwap}
-                    disabled={
-                      !quote || !canQuote || !amount || Number(amount) <= 0
-                    }
-                    className="relative w-full cursor-pointer rounded py-4 text-base font-bold text-white transition-all sm:text-xl hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    <span> REVIEW SWAP </span>
-                    <Image
-                      src="/dapp/connect-wallet.png"
-                      alt="Review"
-                      width={200}
-                      height={200}
-                      className="absolute inset-0 z-[-1] h-full w-full object-fill"
-                    />
-                  </button>
+                  <>
+                    {thinPoolWarning && (
+                      <div className="relative mb-3 rounded-lg px-4 py-3 text-center">
+                        <p className="font-family-ThaleahFat text-sm tracking-wider text-yellow-200 uppercase sm:text-base">
+                          ⚠️ {thinPoolWarning}
+                        </p>
+                        <Image
+                          src="/quest/header-quest-bg.png"
+                          alt="Warning BG"
+                          width={200}
+                          height={200}
+                          className="absolute inset-0 left-0 z-[-1] h-full w-full opacity-80"
+                        />
+                      </div>
+                    )}
+                    <button
+                      onClick={handleReviewSwap}
+                      disabled={
+                        !quote || !canQuote || !amount || Number(amount) <= 0
+                      }
+                      className="relative w-full cursor-pointer rounded py-4 text-base font-bold text-white transition-all sm:text-xl hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <span> REVIEW SWAP </span>
+                      <Image
+                        src="/dapp/connect-wallet.png"
+                        alt="Review"
+                        width={200}
+                        height={200}
+                        className="absolute inset-0 z-[-1] h-full w-full object-fill"
+                      />
+                    </button>
+                  </>
                 )}
               </div>
             </div>

@@ -69,13 +69,14 @@ export interface PoolInfo {
   token1: string;
   fee: number;
   name: string;
+  thinLiquidity?: boolean; // Warn users — pool has very low liquidity, high slippage expected
 }
 
 export const POOLS: PoolInfo[] = [
   { address: "0x0E5914e3A7e2e6d18330Dd33fA387Ce33Da48b54", token0: "0x5D525Df2bD99a6e7ec58b76aF2fd95F39874EBed", token1: CONTRACTS.WPC, fee: 500, name: "pSOL/WPC" },
   { address: "0x012d5C099f8AE00009f40824317a18c3A342f622", token0: "0x2971824Db68229D087931155C2b8bB820B275809", token1: CONTRACTS.WPC, fee: 500, name: "pETH/WPC" },
-  { address: "0x2d46b2b92266f34345934F17039768cd631aB026", token0: "0xCA0C5E6F002A389E1580F0DB7cd06e4549B5F9d3", token1: CONTRACTS.WPC, fee: 500, name: "USDT.eth/WPC" },
-  { address: "0x69B21660F49f2B8F60B0177Abc751a08EBEa0Ae3", token0: "0x387b9C8Db60E74999aAAC5A2b7825b400F12d68E", token1: CONTRACTS.WPC, fee: 500, name: "USDC.eth/WPC" },
+  { address: "0x2d46b2b92266f34345934F17039768cd631aB026", token0: "0xCA0C5E6F002A389E1580F0DB7cd06e4549B5F9d3", token1: CONTRACTS.WPC, fee: 500, name: "USDT.eth/WPC", thinLiquidity: true },
+  { address: "0x69B21660F49f2B8F60B0177Abc751a08EBEa0Ae3", token0: "0x387b9C8Db60E74999aAAC5A2b7825b400F12d68E", token1: CONTRACTS.WPC, fee: 500, name: "USDC.eth/WPC", thinLiquidity: true },
   { address: "0x1cE819E742b44f922D2F05fdFFd17b4997f4CD15", token0: "0x2C455189D2af6643B924A981a9080CcC63d5a567", token1: CONTRACTS.WPC, fee: 500, name: "USDT.base/WPC" },
   { address: "0xF926707689ad2fE9A81e666E5B888b2f3AD33980", token0: "0xc7007af2B24D4eb963fc9633B0c66e1d2D90Fc21", token1: CONTRACTS.WPC, fee: 500, name: "pETH.base/WPC" },
   { address: "0x1354c9A72F447f60F4811FC34b8C2e084FE338A3", token0: "0xc0a821a1AfEd1322c5e15f1F4586C0B8cE65400e", token1: CONTRACTS.WPC, fee: 3000, name: "pETH.arb/WPC" },
