@@ -465,6 +465,14 @@ export async function executeSwap(params: {
 
     // ═══ STEP 1: Wrap native PC → WPC (if native input) ═══
     if (isNativeIn) {
+      // Pre-flight: check native PC balance
+      const provider = getProvider();
+      const pcBalance = await provider.getBalance(params.recipient).catch(() => 0n);
+      if (pcBalance < amountIn) {
+        throw new Error(
+          `Insufficient PC balance. You have ${(Number(pcBalance) / 1e18).toFixed(6)} PC but need ${(Number(amountIn) / 1e18).toFixed(6)} PC.`
+        );
+      }
       onStep(0, "WRAP PC → WPC", "signing");
       const wpcIface = new ethers.Interface(["function deposit() payable"]);
       const wrapData = wpcIface.encodeFunctionData("deposit");
@@ -490,6 +498,21 @@ export async function executeSwap(params: {
       onStep(0, "WRAP PC → WPC", "confirmed");
     } else {
       onStep(0, "WRAP PC → WPC", "confirmed");
+    }
+
+    // ═══ PRE-FLIGHT: Verify token balance before proceeding ═══
+    {
+      const provider = getProvider();
+      const tokenToCheck = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
+      const tokenContract = new ethers.Contract(tokenToCheck, ERC20_ABI, provider);
+      const balance = await tokenContract.balanceOf(params.recipient).catch(() => 0n);
+      if (balance < amountIn) {
+        const sym = isNativeIn ? "WPC" : params.tokenIn.slice(0, 10);
+        throw new Error(
+          `Insufficient ${sym} balance. You have ${balance.toString()} but need ${amountIn.toString()}. ` +
+          (isNativeIn ? "The PC → WPC wrap may not have confirmed yet — try again in a few seconds." : "")
+        );
+      }
     }
 
     // ═══ STEP 2: Check allowance, approve only if needed ═══
@@ -531,6 +554,20 @@ export async function executeSwap(params: {
       }
     }
     onStep(1, "APPROVE TOKEN", "confirmed");
+
+    // ═══ POST-APPROVE: Verify allowance is actually set before swapping ═══
+    {
+      const provider = getProvider();
+      const tokenToCheck = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
+      const tokenContract = new ethers.Contract(tokenToCheck, ERC20_ABI, provider);
+      const finalAllowance = await tokenContract.allowance(params.recipient, CONTRACTS.MOLESWAP_FEE_ROUTER).catch(() => 0n);
+      if (finalAllowance < amountIn) {
+        throw new Error(
+          `Token approval not confirmed on-chain yet (allowance: ${finalAllowance.toString()}, need: ${amountIn.toString()}). ` +
+          `Please try again in a few seconds.`
+        );
+      }
+    }
 
     // ═══ STEP 3: Execute swap via MoleSwap FeeRouter ═══
     // Detect multi-hop: if neither token is WPC, route through WPC as intermediary
@@ -614,9 +651,22 @@ export async function executeSwap(params: {
     onStep(2, "SWAP TOKENS", "confirmed");
     return { txHash, success: true };
   } catch (err: any) {
-    console.error("[MoleSwap] Swap error:", err?.message || err);
-    onStep(-1, err?.message || "Unknown error", "error");
-    return { txHash: "", success: false, error: err?.message || "Unknown swap error" };
+    // Decode common Uniswap V3 / FeeRouter revert errors
+    const msg = err?.message || String(err);
+    const data = err?.data || msg.match(/data="(0x[a-f0-9]+)"/i)?.[1] || "";
+    let decoded = msg;
+    if (data.startsWith("0xf4d678b8")) {
+      decoded = "Swap failed: token transfer rejected (STF). This usually means insufficient token balance or the approval didn't confirm in time. Please check your balance and try again.";
+    } else if (data.startsWith("0x13be252b")) {
+      decoded = "Swap failed: amount is zero or too small to execute (AS).";
+    } else if (data.startsWith("0x584a7938")) {
+      decoded = "Swap failed: price moved beyond slippage tolerance (SPL). Try increasing slippage.";
+    } else if (msg.includes("execution reverted") && !msg.includes("STF") && !msg.includes("balance")) {
+      decoded = "Swap reverted on-chain. This may be caused by insufficient balance, stale approval, or pool liquidity issues. Please verify your balance and try again.";
+    }
+    console.error("[MoleSwap] Swap error:", decoded);
+    onStep(-1, decoded, "error");
+    return { txHash: "", success: false, error: decoded };
   }
 }
 
