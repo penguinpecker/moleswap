@@ -6,6 +6,9 @@ import {
   usePushChainClient,
   PushUI,
 } from "@pushchain/ui-kit";
+import { WagmiProvider } from "wagmi";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { wagmiConfig } from "./wagmi-config";
 
 export { usePushWalletContext, usePushChainClient, PushUI };
 
@@ -42,12 +45,23 @@ const APP_METADATA = {
   description: "Pixel-art DEX on PushChain. Swap, earn XP, climb the leaderboard.",
 };
 
+// Single QueryClient instance — created once, outside the component render,
+// so React Query's cache persists across re-renders of the provider.
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 10_000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
 export function PushChainWalletProvider({ children, network = "testnet" }: Props) {
   const walletConfig = {
     network:
       network === "mainnet"
         ? PushUI.CONSTANTS.PUSH_NETWORK.MAINNET
-        : PushUI.CONSTANTS.PUSH_NETWORK.TESTNET,
+        : PushUI.CONSTANTS.PUSH_NETWORK.TESTNET_DONUT,
     login: {
       email: true,
       google: true,
@@ -63,9 +77,18 @@ export function PushChainWalletProvider({ children, network = "testnet" }: Props
     },
   };
 
+  // Provider nesting mirrors RamenFi's production setup:
+  //   WagmiProvider > QueryClientProvider > PushUniversalWalletProvider
+  // WagmiProvider must be outermost so its EIP-6963 discovery fires before
+  // the ui-kit's MetaMaskSDK calls sdk.getProvider() — that's what makes
+  // MetaMask (and Rabby / Zerion) appear in the wallet modal.
   return (
-    <PushUniversalWalletProvider config={walletConfig} app={APP_METADATA}>
-      {children}
-    </PushUniversalWalletProvider>
+    <WagmiProvider config={wagmiConfig}>
+      <QueryClientProvider client={queryClient}>
+        <PushUniversalWalletProvider config={walletConfig} app={APP_METADATA}>
+          {children}
+        </PushUniversalWalletProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
   );
 }
