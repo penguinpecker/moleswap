@@ -40,7 +40,7 @@ export interface RelayChain {
 const SOURCE_CHAINS: Record<string, { displayName: string; icon: string; order: number }> = {
   "Push Chain": { displayName: "Push Chain", icon: "/push-chain-logo.png", order: 0 },
   "Ethereum":   { displayName: "Ethereum",   icon: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", order: 1 },
-  "Base":       { displayName: "Base",       icon: "https://assets.coingecko.com/coins/images/33613/small/base.png", order: 2 },
+  "Base":       { displayName: "Base",       icon: "https://icons.llamao.fi/icons/chains/rsz_base.jpg", order: 2 },
   "Arbitrum":   { displayName: "Arbitrum",   icon: "https://assets.coingecko.com/coins/images/16547/small/photo_2023-03-29_21.47.00.jpeg", order: 3 },
   "BNB Chain":  { displayName: "BNB Chain",  icon: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png", order: 4 },
   "Solana":     { displayName: "Solana",     icon: "https://assets.coingecko.com/coins/images/4128/small/solana.png", order: 5 },

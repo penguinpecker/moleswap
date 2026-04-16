@@ -427,7 +427,7 @@ export async function executeSwap(params: {
     const isUnwrap = actualIn.toLowerCase() === CONTRACTS.WPC.toLowerCase() && params.tokenOut === ethers.ZeroAddress;
     
     if (isWrap) {
-      onStep(0, "WRAP PC → WPC", "signing");
+      onStep(0, "Wrap PC → WPC", "signing");
       const wpcIface = new ethers.Interface(["function deposit() payable"]);
       const wrapData = wpcIface.encodeFunctionData("deposit");
 
@@ -436,12 +436,12 @@ export async function executeSwap(params: {
       }, uOpts);
       const txHash = extractHash(wrapResult);
 
-      onStep(0, "WRAP PC → WPC", "confirmed");
+      onStep(0, "Wrap PC → WPC", "confirmed");
       return { txHash, success: true };
     }
 
     if (isUnwrap) {
-      onStep(0, "UNWRAP WPC → PC", "signing");
+      onStep(0, "Unwrap WPC → PC", "signing");
       const wpcIface = new ethers.Interface(["function withdraw(uint256 wad)"]);
       const unwrapData = wpcIface.encodeFunctionData("withdraw", [amountIn]);
 
@@ -450,7 +450,7 @@ export async function executeSwap(params: {
       }, uOpts);
       const txHash = extractHash(unwrapResult);
 
-      onStep(0, "UNWRAP WPC → PC", "confirmed");
+      onStep(0, "Unwrap WPC → PC", "confirmed");
       return { txHash, success: true };
     }
 
@@ -464,7 +464,7 @@ export async function executeSwap(params: {
           `Insufficient PC balance. You have ${(Number(pcBalance) / 1e18).toFixed(6)} PC but need ${(Number(amountIn) / 1e18).toFixed(6)} PC.`
         );
       }
-      onStep(0, "WRAP PC → WPC", "signing");
+      onStep(0, "Wrap PC → WPC", "signing");
       const wpcIface = new ethers.Interface(["function deposit() payable"]);
       const wrapData = wpcIface.encodeFunctionData("deposit");
 
@@ -486,10 +486,11 @@ export async function executeSwap(params: {
           if (attempt === 11) console.warn("[MoleSwap] Wrap may not have confirmed yet, proceeding anyway");
         }
       }
-      onStep(0, "WRAP PC → WPC", "confirmed");
-    } else {
-      onStep(0, "WRAP PC → WPC", "confirmed");
+      onStep(0, "Wrap PC → WPC", "confirmed");
     }
+    // else: no wrap needed — do not emit a bogus confirmed event for a step that
+    // isn't part of this route. SwapPage builds its step list from quote.steps,
+    // so a missing wrap means no wrap row is rendered at all.
 
     // ═══ PRE-FLIGHT: Verify token balance before proceeding ═══
     {
@@ -507,7 +508,6 @@ export async function executeSwap(params: {
     }
 
     // ═══ STEP 2: Check allowance, approve only if needed ═══
-    onStep(1, "CHECKING ALLOWANCE", "signing");
     const tokenToApprove = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
     
     let needsApproval = true;
@@ -521,7 +521,7 @@ export async function executeSwap(params: {
     }
 
     if (needsApproval) {
-      onStep(1, "APPROVE TOKEN", "signing");
+      onStep(1, "Approve token", "signing");
       const approveIface = new ethers.Interface(["function approve(address spender, uint256 amount) returns (bool)"]);
       // Approve only what's needed for this swap, not MAX_UINT — users should
       // not be prompted for unlimited approval.
@@ -543,8 +543,10 @@ export async function executeSwap(params: {
           if (attempt === 9) console.warn("[MoleSwap] Approve may not have confirmed, proceeding anyway");
         }
       }
+      onStep(1, "Approve token", "confirmed");
     }
-    onStep(1, "APPROVE TOKEN", "confirmed");
+    // If no approval was needed, do NOT emit a confirmed event — the quote
+    // won't include an "Approve token" row either, so there's no slot to fill.
 
     // ═══ POST-APPROVE: Verify allowance is actually set before swapping ═══
     {
@@ -573,7 +575,7 @@ export async function executeSwap(params: {
       if (!poolA || !poolB) throw new Error(`No route found: no pool for ${actualIn.slice(0,10)} or ${actualOut.slice(0,10)} against WPC`);
 
       // Hop 1: tokenIn → WPC
-      onStep(2, "SWAP → WPC", "signing");
+      onStep(2, "Swap → WPC", "signing");
       const iface = new ethers.Interface(FEE_ROUTER_ABI);
       const hop1Data = iface.encodeFunctionData("swapExactInputSingle", [
         actualIn, CONTRACTS.WPC, poolA.fee, amountIn, 0n, deadline, 0,
@@ -582,7 +584,7 @@ export async function executeSwap(params: {
         to: CONTRACTS.MOLESWAP_FEE_ROUTER, value: BigInt(0), data: hop1Data,
       }, uOpts);
       console.log("[MoleSwap] Multi-hop leg 1 (→ WPC):", extractHash(hop1Result));
-      onStep(2, "SWAP → WPC", "confirmed");
+      onStep(2, "Swap → WPC", "confirmed");
 
       // Wait for hop 1 to settle, then read WPC balance for hop 2 amount
       await new Promise(r => setTimeout(r, 4000));
@@ -591,7 +593,7 @@ export async function executeSwap(params: {
       const wpcBalance = await wpcToken.balanceOf(params.recipient).catch(() => 0n);
 
       // Approve WPC to FeeRouter for hop 2
-      onStep(3, "APPROVE WPC", "signing");
+      onStep(3, "Approve WPC", "signing");
       const approveIface = new ethers.Interface(["function approve(address,uint256) returns (bool)"]);
       let wpcAllowance = 0n;
       try { wpcAllowance = await wpcToken.allowance(params.recipient, CONTRACTS.MOLESWAP_FEE_ROUTER); } catch {}
@@ -601,10 +603,10 @@ export async function executeSwap(params: {
         }, uOpts);
         await new Promise(r => setTimeout(r, 4000));
       }
-      onStep(3, "APPROVE WPC", "confirmed");
+      onStep(3, "Approve WPC", "confirmed");
 
       // Hop 2: WPC → tokenOut
-      onStep(4, "SWAP WPC →", "signing");
+      onStep(4, "Swap WPC →", "signing");
       const hop2Data = iface.encodeFunctionData("swapExactInputSingle", [
         CONTRACTS.WPC, actualOut, poolB.fee, wpcBalance, amountOutMin, deadline, 0,
       ]);
@@ -615,12 +617,12 @@ export async function executeSwap(params: {
       console.log("[MoleSwap] Multi-hop leg 2 (WPC →):", txHash);
 
       if (!txHash) throw new Error("Multi-hop swap leg 2 returned empty hash");
-      onStep(4, "SWAP WPC →", "confirmed");
+      onStep(4, "Swap WPC →", "confirmed");
       return { txHash, success: true };
     }
 
     // ── Single-hop: direct pool exists ──
-    onStep(2, "SWAP TOKENS", "signing");
+    onStep(2, "Swap tokens", "signing");
     const iface = new ethers.Interface(FEE_ROUTER_ABI);
     const swapCalldata = iface.encodeFunctionData("swapExactInputSingle", [
       actualIn,
@@ -639,7 +641,7 @@ export async function executeSwap(params: {
 
     if (!txHash) throw new Error("Swap transaction returned empty hash");
 
-    onStep(2, "SWAP TOKENS", "confirmed");
+    onStep(2, "Swap tokens", "confirmed");
     return { txHash, success: true };
   } catch (err: any) {
     // Decode common Uniswap V3 / FeeRouter revert errors

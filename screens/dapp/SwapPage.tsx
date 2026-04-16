@@ -58,11 +58,28 @@ export const SwapPage = ({
   const [approving, setApproving] = useState(false);
   const [approvalHash, setApprovalHash] = useState<string | null>(null);
   const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
-  const [swapSteps, setSwapSteps] = useState<Array<{ label: string; status: "pending" | "signing" | "confirmed" | "error" }>>([
-    { label: "WRAP PC → WPC", status: "pending" },
-    { label: "APPROVE TOKEN", status: "pending" },
-    { label: "SWAP TOKENS", status: "pending" },
-  ]);
+  // Step list is derived from the quote (which knows the exact route: wrap/no-wrap,
+  // approve-or-skip, single-hop vs multi-hop) rather than hardcoded. This ensures
+  // we only render steps that actually apply to this swap.
+  const initialSwapSteps = useMemo(() => {
+    const quoteSteps: Array<{ label?: string }> = Array.isArray(swapData.quote?.steps)
+      ? swapData.quote.steps
+      : [];
+    // Only keep on-chain tx steps (quote includes an "approval" helper step for
+    // the relay flow that isn't part of the actual swap execution).
+    const known = ["Wrap PC → WPC", "Unwrap WPC → PC", "Approve token", "Swap tokens", "Swap → WPC", "Approve WPC", "Swap WPC →"];
+    const txSteps = quoteSteps.filter(s => typeof s?.label === "string" && known.includes(s.label as string));
+    if (txSteps.length > 0) {
+      return txSteps.map(s => ({ label: s.label as string, status: "pending" as const }));
+    }
+    // Fallback for when quote.steps is missing — best-guess 3-step default.
+    return [
+      { label: "Approve token", status: "pending" as const },
+      { label: "Swap tokens", status: "pending" as const },
+    ];
+  }, [swapData.quote]);
+
+  const [swapSteps, setSwapSteps] = useState<Array<{ label: string; status: "pending" | "signing" | "confirmed" | "error" }>>(initialSwapSteps);
 
   // Compute input amount in wei for exact-amount approval when needed
   const amountWei = useMemo(() => {
@@ -394,13 +411,10 @@ export const SwapPage = ({
 
       const { executeSwap: pushSwap } = await import("@/lib/pushchain/amm");
       
-      setCurrentStep("Wrapping PC → WPC...");
-      // Reset steps
-      setSwapSteps([
-        { label: "WRAP PC → WPC", status: "pending" },
-        { label: "APPROVE TOKEN", status: "pending" },
-        { label: "SWAP TOKENS", status: "pending" },
-      ]);
+      setCurrentStep("Preparing swap...");
+      // Reset steps to the quote-derived list (wrap is only present if native input,
+      // approve only if allowance insufficient, multi-hop has 4 steps, etc.)
+      setSwapSteps(initialSwapSteps);
 
       const swapResult = await pushSwap({
         pushChainClient: pushWallet.pushChainClient,
@@ -410,12 +424,15 @@ export const SwapPage = ({
         amountOutMin: swapData.quote?.amountOut || "0",
         recipient: currentAddress,
         fee: swapData.quote?.fee,
-        onStep: (stepIdx, label, status) => {
+        onStep: (_stepIdx, label, status) => {
+          // Match emitted label to the step row in the quote-derived list.
+          // Label casing from amm.ts is now normalized to match quote.steps.
           setSwapSteps(prev => {
+            const normalized = label.trim();
+            const idx = prev.findIndex(s => s.label.trim().toLowerCase() === normalized.toLowerCase());
+            if (idx === -1) return prev; // unknown label — ignore rather than corrupt the UI
             const next = [...prev];
-            if (stepIdx >= 0 && stepIdx < next.length) {
-              next[stepIdx] = { label, status };
-            }
+            next[idx] = { label: prev[idx].label, status };
             return next;
           });
           if (status === "signing") setCurrentStep(label);
