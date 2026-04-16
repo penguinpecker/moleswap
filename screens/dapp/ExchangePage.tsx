@@ -393,15 +393,6 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
           },
           true,
         );
-        // eslint-disable-next-line no-console
-        console.log("Relay getQuote response", q);
-        // eslint-disable-next-line no-console
-        console.log("Quote fees structure:", JSON.stringify(q?.fees, null, 2));
-        // eslint-disable-next-line no-console
-        console.log(
-          "Quote details structure:",
-          JSON.stringify(q?.details, null, 2),
-        );
         setQuote(q);
         setQuoteUpdatedAt(Date.now());
       } catch (e: any) {
@@ -1058,7 +1049,6 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     setSearchQuery("");
     setSearchQueryNetwork("");
   };
-  console.log(selectedNetwork, filteredModalTokens, fromToken, toToken);
   // ----- Selection UI (modal) -----
   if (selectionMode !== "none") {
     return (

@@ -297,9 +297,6 @@ export const SwapPage = ({
         console.warn("Warning: Burn address still found in cleaned quote");
       }
 
-      // eslint-disable-next-line no-console
-      console.log("Using cleaned quote with address:", currentAddress);
-
       let finalTxHashes: string[] = [];
       let hasStarted = false;
       // If approval is indicated by quote, verify on-chain allowance first

@@ -37,7 +37,7 @@ interface Props {
 }
 
 const APP_METADATA = {
-  logoUrl: "/moleswap-logo.png",
+  logoUrl: "https://www.moleswap.com/moleswap-logo.png",
   title: "MoleSwap",
   description: "Pixel-art DEX on PushChain. Swap, earn XP, climb the leaderboard.",
 };

@@ -77,17 +77,20 @@ async function sendTx(
 ): Promise<any> {
   if (typeof window !== "undefined" && (window as any).ethereum) {
     try {
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
-      const network = await provider.getNetwork();
-      if (Number(network.chainId) !== PUSHCHAIN_CHAIN_ID) {
+      const eth = (window as any).ethereum;
+      // Check chain via eth_chainId BEFORE creating a BrowserProvider —
+      // creating one while on the wrong chain and switching mid-call causes
+      // ethers to throw NETWORK_ERROR ("network changed: X => 42101").
+      const currentChainHex: string = await eth.request({ method: "eth_chainId" });
+      if (currentChainHex.toLowerCase() !== "0xa475") {
         try {
-          await (window as any).ethereum.request({
+          await eth.request({
             method: "wallet_switchEthereumChain",
             params: [{ chainId: "0xa475" }],
           });
         } catch (switchErr: any) {
           if (switchErr.code === 4902) {
-            await (window as any).ethereum.request({
+            await eth.request({
               method: "wallet_addEthereumChain",
               params: [{
                 chainId: "0xa475",
@@ -104,12 +107,15 @@ async function sendTx(
           }
         }
       }
+      // Instantiate provider AFTER the chain is confirmed on 42101.
+      const provider = new ethers.BrowserProvider(eth);
       const signer = await provider.getSigner();
-      // PushChain RPC only accepts legacy (type 0) txs — ethers v6 + MetaMask
-      // defaults to EIP-1559 (type 2), which gets rejected. Force type 0 with
-      // explicit gasPrice pulled from the node.
-      const feeData = await provider.getFeeData();
-      const gasPrice = feeData.gasPrice ?? ethers.parseUnits("1", "gwei");
+      // PushChain RPC only accepts legacy (type 0) txs. Pull gasPrice via
+      // eth_gasPrice directly — calling provider.getFeeData() makes ethers v6
+      // probe eth_maxPriorityFeePerGas first, which MetaMask logs as an RPC
+      // error even though it falls back cleanly.
+      const gasPriceHex: string = await eth.request({ method: "eth_gasPrice" });
+      const gasPrice = BigInt(gasPriceHex);
       console.log("[MoleSwap] Using direct EVM signing (msg.sender = user)");
       const sent = await signer.sendTransaction({
         to: tx.to,
@@ -300,7 +306,7 @@ export async function estimateSwapDetails(params: {
         const approveIface = new ethers.Interface(["function approve(address,uint256) returns (bool)"]);
         const gas = await provider.estimateGas({
           from: params.recipient, to: tokenToApprove,
-          data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, amountIn * 10n]),
+          data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, amountIn]),
         }).then(g => Number(g)).catch(() => 27000);
         steps.push({ label: "Approve token", gas });
       }
@@ -711,21 +717,37 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
 
     // ═══ STEP 1: Approve token0 to LiquidityProxy ═══
     onStep(1, `APPROVE ${token0.slice(0,6)}...`, "signing");
-    const MAX_UINT = BigInt("115792089237316195423570985008687907853269984665640564039457584007913129639935");
     const approveIface = new ethers.Interface(["function approve(address, uint256) returns (bool)"]);
+    const erc20Iface = new ethers.Interface(["function allowance(address,address) view returns (uint256)"]);
+    const readProvider = getProvider();
 
-    await sendTx(params.pushChainClient, {
-      to: token0, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, MAX_UINT]),
-    }, uOpts);
-    await new Promise(r => setTimeout(r, 5000));
+    // token0: approve exact amount (amount0), skip if allowance already sufficient
+    {
+      const token0Contract = new ethers.Contract(token0, ["function allowance(address,address) view returns (uint256)"], readProvider);
+      let current0 = 0n;
+      try { current0 = await token0Contract.allowance(params.recipient, CONTRACTS.MOLESWAP_LIQUIDITY_PROXY); } catch {}
+      if (current0 < amount0) {
+        await sendTx(params.pushChainClient, {
+          to: token0, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, amount0]),
+        }, uOpts);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
     onStep(1, `APPROVE ${token0.slice(0,6)}...`, "confirmed");
 
     // ═══ STEP 2: Approve token1 to LiquidityProxy ═══
     onStep(2, `APPROVE ${token1.slice(0,6)}...`, "signing");
-    await sendTx(params.pushChainClient, {
-      to: token1, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, MAX_UINT]),
-    }, uOpts);
-    await new Promise(r => setTimeout(r, 5000));
+    {
+      const token1Contract = new ethers.Contract(token1, ["function allowance(address,address) view returns (uint256)"], readProvider);
+      let current1 = 0n;
+      try { current1 = await token1Contract.allowance(params.recipient, CONTRACTS.MOLESWAP_LIQUIDITY_PROXY); } catch {}
+      if (current1 < amount1) {
+        await sendTx(params.pushChainClient, {
+          to: token1, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, amount1]),
+        }, uOpts);
+        await new Promise(r => setTimeout(r, 5000));
+      }
+    }
     onStep(2, `APPROVE ${token1.slice(0,6)}...`, "confirmed");
 
     // ═══ STEP 3: Mint position via LiquidityProxy ═══
