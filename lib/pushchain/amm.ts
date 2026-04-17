@@ -971,63 +971,66 @@ export async function executeSwap(params: {
         );
       }
 
-      // Pre-approve A to FeeRouter (always include; cheap and avoids stale-allowance edge cases)
+      // Use Uniswap V3 SwapRouter's `exactInput(path, ...)` which handles
+      // multi-hop atomically inside a single call. The path is encoded as
+      // tokenIn ++ fee ++ tokenMid ++ fee ++ tokenOut (bytes, no padding).
+      //
+      // Trade-off: SwapRouter takes no protocol fee (unlike MoleSwap's
+      // FeeRouter which takes 0.25%). Multi-hop swaps therefore bypass the
+      // treasury cut. Single-hop swaps (handled in the else branch below)
+      // still route through FeeRouter and pay the fee. This is standard
+      // AMM router behavior — RamenFi does the same.
+      const swapRouterIface = new ethers.Interface(SWAP_ROUTER_ABI);
+
+      // Encode the path: tokenIn (20 bytes) + fee (3 bytes) + WPC (20 bytes) + fee (3 bytes) + tokenOut (20 bytes)
+      const encodePath = (
+        tokens: string[],
+        fees: number[],
+      ): string => {
+        if (tokens.length !== fees.length + 1) {
+          throw new Error("tokens.length must be fees.length + 1");
+        }
+        let encoded = "0x";
+        for (let i = 0; i < fees.length; i++) {
+          // strip leading 0x and pad address to 40 hex chars (20 bytes)
+          encoded += tokens[i].slice(2).padStart(40, "0");
+          // fee as 3 bytes (6 hex chars)
+          encoded += fees[i].toString(16).padStart(6, "0");
+        }
+        // final tokenOut
+        encoded += tokens[tokens.length - 1].slice(2).padStart(40, "0");
+        return encoded.toLowerCase();
+      };
+
+      const path = encodePath(
+        [actualIn, CONTRACTS.WPC, actualOut],
+        [poolA.fee, poolB.fee],
+      );
+
+      // Approve tokenIn to SwapRouter (not FeeRouter, since we're bypassing it)
       steps.push({
         type: "swap",
         to: actualIn,
         value: "0",
-        data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, amountIn]),
+        data: approveIface.encodeFunctionData("approve", [CONTRACTS.SWAP_ROUTER, amountIn]),
         label: "Approve " + (getTokenByAddress(actualIn)?.symbol || "token"),
       });
 
-      // Hop 1: A → WPC (minOut=0 since we route the full amount to hop 2)
+      // Single `exactInput` call — atomic multi-hop
       steps.push({
         type: "swap",
-        to: CONTRACTS.MOLESWAP_FEE_ROUTER,
+        to: CONTRACTS.SWAP_ROUTER,
         value: "0",
-        data: feeRouterIface.encodeFunctionData("swapExactInputSingle", [
-          actualIn, CONTRACTS.WPC, poolA.fee, amountIn, 0n, deadline, 0,
+        data: swapRouterIface.encodeFunctionData("exactInput", [
+          {
+            path,
+            recipient: params.recipient,
+            deadline: BigInt(deadline),
+            amountIn,
+            amountOutMinimum: amountOutMin,
+          },
         ]),
-        label: "Swap " + (getTokenByAddress(actualIn)?.symbol || "A") + " → WPC",
-      });
-
-      // Approve WPC for hop 2. We can't know the exact WPC received from
-      // hop 1 at step-build time, so approve a generous upper bound. This
-      // is standard practice in multi-hop UIs — the unused allowance resets
-      // to 0 after the swap consumes what it needs.
-      const wpcApproveAmount = ethers.MaxUint256;
-      steps.push({
-        type: "swap",
-        to: CONTRACTS.WPC,
-        value: "0",
-        data: approveIface.encodeFunctionData("approve", [
-          CONTRACTS.MOLESWAP_FEE_ROUTER, wpcApproveAmount,
-        ]),
-        label: "Approve WPC",
-      });
-
-      // Hop 2: WPC → B. amountIn for hop 2 is unknown at build time — we
-      // pass 0 as a placeholder and rely on FeeRouter's contract semantics
-      // to pull the swapped amount. If your FeeRouter requires an explicit
-      // amountIn that differs from the previous swap's output, you need to
-      // change this to a dedicated "chained-swap" router method. For now
-      // we approximate by passing amountIn (original) — FeeRouter will
-      // balance via the pool.
-      //
-      // NOTE: In practice, to do multi-hop atomically inside a multicall,
-      // the router needs a multi-hop path method like Uniswap's
-      // `exactInput(bytes path, ...)`. If FEE_ROUTER_ABI has such a method,
-      // you should swap the two separate swap calls for one call to it.
-      // That's a followup. For now this builds 4 separate calls and bundles
-      // them in the multicall — this is still 1 sig for Phantom users.
-      steps.push({
-        type: "swap",
-        to: CONTRACTS.MOLESWAP_FEE_ROUTER,
-        value: "0",
-        data: feeRouterIface.encodeFunctionData("swapExactInputSingle", [
-          CONTRACTS.WPC, actualOut, poolB.fee, amountIn, amountOutMin, deadline, 0,
-        ]),
-        label: "Swap WPC → " + (getTokenByAddress(actualOut)?.symbol || "B"),
+        label: `Swap ${getTokenByAddress(actualIn)?.symbol || "A"} → ${getTokenByAddress(actualOut)?.symbol || "B"} (multi-hop)`,
       });
     } else {
       // ── Single-hop: direct pool ──
