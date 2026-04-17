@@ -170,7 +170,11 @@ export const SwapPage = ({
         throw new Error("Unable to determine expected chain ID from quote.");
       }
 
-      const wallet = await getWalletClient();
+      // Skip external wallet client entirely for PushChain-connected wallets
+      // (including Phantom/Solana). Calling getWalletClient() blindly uses
+      // window.ethereum, which picks MetaMask when both are installed — even
+      // if the user connected via Phantom.
+      const wallet = pushWallet.isConnected ? null : await getWalletClient();
       if (!wallet && !pushWallet.address) {
         throw new Error("No wallet available. Please connect your wallet.");
       }
@@ -316,8 +320,10 @@ export const SwapPage = ({
 
       let finalTxHashes: string[] = [];
       let hasStarted = false;
-      // If approval is indicated by quote, verify on-chain allowance first
-      if (needsApproval && approvalInfo) {
+      // If approval is indicated by quote, verify on-chain allowance first.
+      // Skip entirely for PushChain wallets — our executeSwap checks allowance
+      // internally via the public RPC (no wallet prompt needed).
+      if (!pushWallet.isConnected && needsApproval && approvalInfo) {
         try {
           const walletForCheck = await getWalletClient();
           if (!walletForCheck) throw new Error("No wallet available.");
@@ -409,8 +415,17 @@ export const SwapPage = ({
       hasStarted = true;
       setCurrentStep("Preparing swap...");
 
-      const { executeSwap: pushSwap } = await import("@/lib/pushchain/amm");
-      
+      const { executeSwap: pushSwap, setWalletOriginChain } = await import("@/lib/pushchain/amm");
+
+      // Tell amm.ts which origin chain the wallet is on, so sendTx can skip
+      // direct EVM signing for Solana-origin wallets (Phantom) and go straight
+      // to universal TX. Phantom injects window.ethereum but can't sign for 0xa475.
+      setWalletOriginChain(
+        (pushWallet as any)?.originChain ||
+        (pushWallet as any)?.universalAccount?.chain ||
+        null,
+      );
+
       setCurrentStep("Preparing swap...");
       // Reset steps to the quote-derived list (wrap is only present if native input,
       // approve only if allowance insufficient, multi-hop has 4 steps, etc.)

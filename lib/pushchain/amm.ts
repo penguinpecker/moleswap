@@ -65,17 +65,52 @@ async function sendUniversalTx(
   return pushChainClient.universal.sendTransaction(txParams);
 }
 
+// ═══ HELPER: Detect if a wallet origin is EVM-compatible ═══
+// Solana-origin universal accounts (Phantom) must skip direct EVM signing —
+// Phantom injects window.ethereum but cannot sign for chain 0xa475.
+function isEvmOrigin(originChain?: string | null): boolean {
+  if (!originChain) return true; // Unknown → try EVM (backwards compat)
+  const c = originChain.toLowerCase();
+  if (c.startsWith("solana:") || c.startsWith("solana") || c.includes("svm")) return false;
+  if (c.startsWith("eip155:") || c.startsWith("evm")) return true;
+  return true;
+}
+
+// Module-level origin chain hint. Callers of executeSwap/addLiquidity/etc. set
+// this via setWalletOriginChain() before invoking, so sendTx can decide whether
+// to attempt direct EVM signing or go straight to universal TX.
+let _walletOriginChain: string | null = null;
+export function setWalletOriginChain(origin: string | null | undefined): void {
+  _walletOriginChain = origin || null;
+}
+
 // ═══ HELPER: Send EVM tx preferring direct signing over Universal TX ═══
 // Direct EVM signing keeps msg.sender = user, which is required for
 // approve/transferFrom and WETH deposit/withdraw. Universal TX routes
 // through a Cosmos executor where msg.sender ≠ user.
-// Strategy: try direct EVM first, fall back to universal TX for non-value
-// txs. For value > 0 (wraps), warn but still attempt universal TX as last resort.
+// Strategy: EVM-origin wallets try direct EVM first, fall back to universal TX.
+// Solana-origin wallets (Phantom) skip direct EVM entirely — Phantom injects
+// window.ethereum but cannot sign for PushChain's chain 0xa475.
 async function sendTx(
   pushChainClient: any,
   tx: { to: string; value: bigint; data?: string },
   options?: UniversalTxOptions,
 ): Promise<any> {
+  const canUseDirectEvm = isEvmOrigin(_walletOriginChain);
+
+  // Phantom injects window.ethereum (with isPhantom=true) but can't sign for 0xa475.
+  // Detect and skip even if originChain hint wasn't passed.
+  const injectedEth: any = typeof window !== "undefined" ? (window as any).ethereum : undefined;
+  const isPhantomOnly = injectedEth?.isPhantom && !injectedEth?.isMetaMask && !injectedEth?.isRabby && !injectedEth?.isZerion;
+
+  if (!canUseDirectEvm || isPhantomOnly) {
+    console.log("[MoleSwap] Non-EVM origin detected (origin:", _walletOriginChain, "phantom:", isPhantomOnly, ") — using Universal TX directly");
+    if (tx.value > 0n) {
+      console.warn("[MoleSwap] Native-value tx from non-EVM wallet — relying on universal executor to forward value.");
+    }
+    return sendUniversalTx(pushChainClient, tx, options);
+  }
+
   // ── Attempt 1: Direct EVM via injected wallet (MetaMask etc.) ──
   if (typeof window !== "undefined" && (window as any).ethereum) {
     try {
