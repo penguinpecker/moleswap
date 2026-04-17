@@ -685,6 +685,9 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
       const result = await removeLiquidity({
         pushChainClient, tokenId: pos.tokenId, liquidity: pos.liquidity,
         recipient: address, burnAfter: true,
+        // Pass origin chain — executeSteps uses this to pick multicall (1 sig
+        // for Phantom/MM-Sepolia) vs sequential (N sigs for Push-native).
+        originChain: walletCtx?.universalAccount?.chain || null,
         onStep: (_s: any, label: string) => setTxMsg(label),
       });
       setTxMsg(result.success ? "Liquidity removed!" : (result.error || "Failed"));
@@ -701,7 +704,13 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
     setTxMsg("Collecting fees...");
     try {
       const { collectFees } = await import("@/lib/pushchain/amm");
-      const result = await collectFees({ pushChainClient, tokenId: pos.tokenId, recipient: address });
+      const result = await collectFees({
+        pushChainClient,
+        tokenId: pos.tokenId,
+        recipient: address,
+        liquidity: pos.liquidity,
+        originChain: walletCtx?.universalAccount?.chain || null,
+      });
       setTxMsg(result.success ? "Fees collected!" : (result.error || "Failed"));
       setTimeout(() => { setTxMsg(null); onRefresh(); }, 3000);
     } catch (err: any) {
@@ -988,6 +997,7 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
         pushChainClient, token0: pool.pool.token0, token1: pool.pool.token1, fee: pool.fee,
         amount0Desired: amount0Wei, amount1Desired: amount1Wei, recipient: address,
         tickLower: selectedTickLower, tickUpper: selectedTickUpper,
+        originChain: walletCtx?.universalAccount?.chain || null,
         onStep: (_step: any, label: string, status: string) => { setStepLabel(label); if (status === "error") setTxError(label); },
       });
       if (result.success) { setTxHash(result.txHash); setTxDone(true); setAmount0(""); setAmount1(""); }

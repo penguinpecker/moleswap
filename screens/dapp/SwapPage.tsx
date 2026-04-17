@@ -439,16 +439,57 @@ export const SwapPage = ({
         amountOutMin: swapData.quote?.amountOut || "0",
         recipient: currentAddress,
         fee: swapData.quote?.fee,
+        // Pass origin chain — executeSwap uses this to pick between multicall
+        // (1 sig for Phantom/MM-Sepolia cross-chain) vs sequential (N sigs
+        // for Push-native EOAs). See RamenFi's sE orchestrator.
+        originChain:
+          (pushWallet as any)?.originChain ||
+          (pushWallet as any)?.universalAccount?.chain ||
+          null,
         onStep: (_stepIdx, label, status) => {
           // Match emitted label to the step row in the quote-derived list.
           // Label casing from amm.ts is now normalized to match quote.steps.
           setSwapSteps(prev => {
             const normalized = label.trim();
             const idx = prev.findIndex(s => s.label.trim().toLowerCase() === normalized.toLowerCase());
-            if (idx === -1) return prev; // unknown label — ignore rather than corrupt the UI
-            const next = [...prev];
-            next[idx] = { label: prev[idx].label, status };
-            return next;
+
+            // Exact match path (sequential mode or wrap/unwrap short-circuit)
+            if (idx !== -1) {
+              const next = [...prev];
+              next[idx] = { label: prev[idx].label, status };
+              return next;
+            }
+
+            // Multicall mode: executeSteps emits bundled labels like "Swap",
+            // "Bridge & swap", "2-hop swap", "Bridge & 4-hop swap" etc.
+            // These don't match quote.steps 1:1 because the multicall bundles
+            // approve+swap+approve+swap into one signature. Collapse the UI
+            // to show all steps transitioning together.
+            const isBundledLabel =
+              /^bridge\s*&/i.test(normalized) ||
+              /^\d+-hop swap$/i.test(normalized) ||
+              normalized.toLowerCase() === "swap" ||
+              normalized.toLowerCase() === "bridge funds";
+
+            if (isBundledLabel) {
+              // Transition all remaining pending rows to the same status
+              return prev.map(row =>
+                row.status === "confirmed" || row.status === "error"
+                  ? row
+                  : { label: row.label, status },
+              );
+            }
+
+            if (status === "error") {
+              // Error label is freeform — mark the first non-confirmed row as error
+              const firstPendingIdx = prev.findIndex(r => r.status !== "confirmed");
+              if (firstPendingIdx === -1) return prev;
+              const next = [...prev];
+              next[firstPendingIdx] = { label: prev[firstPendingIdx].label, status: "error" };
+              return next;
+            }
+
+            return prev; // unknown label — ignore rather than corrupt the UI
           });
           if (status === "signing") setCurrentStep(label);
         },

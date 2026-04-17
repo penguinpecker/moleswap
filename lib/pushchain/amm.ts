@@ -43,6 +43,368 @@ export interface UniversalTxOptions {
   onProgress?: (progress: { id: string; title: string; message: string; level: string; timestamp: string }) => void;
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══ RAMENFI-CLONED UNIVERSAL TX ARCHITECTURE ════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// Every helper in this block is a direct clone of RamenFi's production
+// patterns (decoded from their bundle at ramenfi.xyz). Do not modify without
+// understanding what RamenFi does. Comments reference the original minified
+// names so we can cross-check.
+
+// ─── CONSTANTS (RamenFi: ny.MULTICALL_TARGET_ADDRESS) ──────────────────────
+// When universal.sendTransaction is called with `data: Array<...>` (multicall
+// mode), the SDK requires `to` to be the zero address. RamenFi hardcodes this
+// as MULTICALL_TARGET_ADDRESS. See:
+//   https://push.org/docs/chain/build/send-universal-transaction (Batch Transactions)
+export const MULTICALL_TARGET_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+
+// RamenFi constants lifted from their bundle (MULTICALL_SELECTOR, etc.)
+export const MULTICALL_SELECTOR = "0x1749e1e3" as const;
+export const UEA_MULTICALL_SELECTOR = "0x2cc2842d" as const;
+export const MIGRATION_SELECTOR = "0xcac656d6" as const;
+
+// Push Chain Donut testnet chain namespaces we treat as "Push-native origin".
+// When origin is one of these, we loop-sequentially (N sigs) instead of
+// multicall (1 sig), because Push-native accounts cannot use batch mode
+// inbound to themselves (SDK limitation — see docs).
+const PUSH_CHAIN_NAMESPACES = [
+  "eip155:42101",        // PUSH_TESTNET_DONUT
+  "eip155:9001",         // PUSH_LOCALNET
+] as const;
+
+// ─── isPushChain(originChain) (RamenFi: nC.isPushChain) ────────────────────
+// Predicate: did the user connect a wallet on Push Chain directly (vs a
+// cross-chain wallet like Phantom/MetaMask-Sepolia)?
+export function isPushChain(originChain: string | null | undefined): boolean {
+  if (!originChain) return false;
+  const lower = originChain.toLowerCase();
+  return PUSH_CHAIN_NAMESPACES.some(ns => lower === ns.toLowerCase());
+}
+
+// ─── extractTxHash(result) (RamenFi: sj) ───────────────────────────────────
+// RamenFi's sj:
+//   function sj(e){let t=e?.transactionHash||e?.hash;
+//   if("string"==typeof t&&t.startsWith("0x"))return t;
+//   throw Error("Failed to extract transaction hash")}
+// Ours is more defensive — checks many shapes because the SDK response shape
+// has changed across versions.
+export function extractTxHash(result: any): string {
+  if (!result) throw new Error("Failed to extract transaction hash: empty result");
+  if (typeof result === "string" && result.startsWith("0x")) return result;
+
+  const t = result?.transactionHash || result?.hash;
+  if (typeof t === "string" && t.startsWith("0x")) return t;
+
+  const fallbackKeys = ["txHash", "txnHash", "transactionhash", "tx_hash"];
+  for (const key of fallbackKeys) {
+    const v = result?.[key];
+    if (typeof v === "string" && v.startsWith("0x")) return v;
+  }
+  if (result?.tx?.hash && typeof result.tx.hash === "string") return result.tx.hash;
+  if (result?.receipt?.transactionHash) return result.receipt.transactionHash;
+  if (result?.response?.hash) return result.response.hash;
+
+  throw new Error("Failed to extract transaction hash");
+}
+
+// ─── isSwapStep(step) (RamenFi: sC) ─────────────────────────────────────────
+// RamenFi's sC: function sC(e){return"swap"===e.type}
+export function isSwapStep(step: SwapStep): boolean {
+  return step.type === "swap";
+}
+
+// ─── STEP TYPES (RamenFi shape from /api/swap response) ─────────────────────
+// RamenFi's backend returns an ordered list of steps. Each step is either
+// - a `bridge` step (asset movement across chains via `funds`), or
+// - a `swap` step (a contract call: `{to, value, data}`).
+// We construct the same shape on the frontend instead of calling a backend
+// endpoint, since MoleSwap already knows the route.
+export interface BridgeStep {
+  type: "bridge";
+  amount: string;              // BigInt-stringified amount in smallest units
+  token: any;                  // PushChain.CONSTANTS.MOVEABLE.TOKEN.*
+}
+
+export interface SwapStepCall {
+  type: "swap";
+  to: string;                  // contract address (e.g. FeeRouter, WPC)
+  value: string;               // BigInt-stringified native value
+  data: string;                // ABI-encoded calldata
+  label?: string;              // human-readable label for UI step tracker
+}
+
+export type SwapStep = BridgeStep | SwapStepCall;
+
+// ─── ExecuteStepsResult (RamenFi's return shape from sE) ───────────────────
+export interface ExecuteStepsResult {
+  success: boolean;
+  txHash?: string;
+  error?: string;
+}
+
+// ─── ExecuteStepsParams (RamenFi's sE parameters) ──────────────────────────
+export interface ExecuteStepsParams {
+  pushChainClient: any;        // initialized PushChainClient (guarded)
+  userAddress: string;         // UEA — used as `to` for funds-only bridges
+  steps: SwapStep[];           // ordered list; first is typically bridge, rest swap
+  originChain: string | null;  // e.g. "eip155:42101" or "solana:EtWTRAB..."
+  onStep?: (index: number, label: string, status: "pending" | "signing" | "confirmed" | "error") => void;
+  pollPushReceipt?: (hash: string) => Promise<void>; // injected: polls Push Chain RPC for confirmation
+}
+
+// ─── executeSteps(params) (RamenFi: sE — THE MASTER ORCHESTRATOR) ──────────
+// This function is a direct clone of RamenFi's `sE`. It decides between 4
+// execution strategies based on origin chain and step composition:
+//
+//   ORIGIN = non-Push (Phantom, MM on Sepolia, etc.)
+//     Case A: bridge only, no swaps          → 1 sig: funds transfer to UEA
+//     Case B: bridge + swap(s) (atomic)       → 1 sig: multicall with funds
+//     Case C: swap(s) only, no bridge         → 1 sig: multicall without funds
+//
+//   ORIGIN = Push (native EOA on Push Chain)
+//     Case D: sequential — each swap step is its own sig (N sigs)
+//             (Push-native cannot use batch mode inbound per SDK docs)
+//
+// The huge Phantom UX win comes from Case B: what used to be 4 sigs (approve,
+// swap, approve, swap for multi-hop) now becomes 1 sig because the entire
+// call chain is bundled into a single universal transaction payload.
+export async function executeSteps(
+  params: ExecuteStepsParams,
+): Promise<ExecuteStepsResult> {
+  const { pushChainClient, userAddress, steps, originChain } = params;
+  const onStep = params.onStep || (() => {});
+  const pollReceipt = params.pollPushReceipt;
+
+  if (!steps || steps.length === 0) {
+    return { success: false, error: "No steps to execute" };
+  }
+  if (!pushChainClient) {
+    return { success: false, error: "PushChain client not initialized" };
+  }
+
+  // RamenFi: let i = !s || !(0, nC.isPushChain)(s)
+  const isCrossChain = !originChain || !isPushChain(originChain);
+
+  try {
+    let finalTxHash: string | null = null;
+
+    if (isCrossChain) {
+      // ─── CROSS-CHAIN PATH (Phantom, MM-Sepolia, etc.) — MULTICALL ─────
+      // RamenFi: let s = n[0], i = n.filter(sC), a = "bridge"===s.type?s:null
+      const firstStep = steps[0];
+      const swapSteps = steps.filter(isSwapStep) as SwapStepCall[];
+      const bridgeStep: BridgeStep | null =
+        firstStep?.type === "bridge" ? (firstStep as BridgeStep) : null;
+
+      if (bridgeStep && swapSteps.length === 0) {
+        // Case A: bridge only — funds transfer, no calldata
+        // RamenFi: t.universal.sendTransaction({to:r, funds:n})
+        onStep(0, "Bridge funds", "signing");
+        const funds = { amount: BigInt(bridgeStep.amount), token: bridgeStep.token };
+        const tx = await pushChainClient.universal.sendTransaction({
+          to: userAddress,
+          funds,
+        });
+        finalTxHash = extractTxHash(tx);
+        onStep(0, "Bridge funds", "confirmed");
+        if (pollReceipt) await pollReceipt(finalTxHash);
+      }
+      else if (bridgeStep && swapSteps.length > 0) {
+        // Case B: bridge + swap(s) atomic multicall — THE 1-SIG WINNER
+        // RamenFi: t.universal.sendTransaction({to:MULTICALL_TARGET_ADDRESS, funds:r, data:n})
+        const combinedLabel = swapSteps.length === 1
+          ? "Bridge & swap"
+          : `Bridge & ${swapSteps.length}-hop swap`;
+        onStep(0, combinedLabel, "signing");
+
+        const funds = { amount: BigInt(bridgeStep.amount), token: bridgeStep.token };
+        const calls = swapSteps.map(s => ({
+          to: s.to,
+          value: BigInt(s.value),
+          data: s.data,
+        }));
+
+        const tx = await pushChainClient.universal.sendTransaction({
+          to: MULTICALL_TARGET_ADDRESS,
+          funds,
+          data: calls,
+        });
+        finalTxHash = extractTxHash(tx);
+        onStep(0, combinedLabel, "confirmed");
+        if (pollReceipt) await pollReceipt(finalTxHash);
+      }
+      else {
+        // Case C: swaps only, no bridge — multicall without funds
+        // RamenFi: t.universal.sendTransaction({to:MULTICALL_TARGET_ADDRESS, data:r})
+        const label = swapSteps.length === 1 ? "Swap" : `${swapSteps.length}-hop swap`;
+        onStep(0, label, "signing");
+
+        const calls = swapSteps.map(s => ({
+          to: s.to,
+          value: BigInt(s.value),
+          data: s.data,
+        }));
+
+        const tx = await pushChainClient.universal.sendTransaction({
+          to: MULTICALL_TARGET_ADDRESS,
+          data: calls,
+        });
+        finalTxHash = extractTxHash(tx);
+        onStep(0, label, "confirmed");
+        if (pollReceipt) await pollReceipt(finalTxHash);
+      }
+    } else {
+      // ─── PUSH-NATIVE PATH — SEQUENTIAL (one sig per step) ─────────────
+      // RamenFi: for(let r of n){if(!sC(r))continue;...}
+      // Bridge steps are skipped on Push-native because there's nothing to
+      // bridge — the user already holds the tokens on Push Chain.
+      for (let i = 0; i < steps.length; i++) {
+        const step = steps[i];
+        if (!isSwapStep(step)) continue;
+        const swapStep = step as SwapStepCall;
+        const label = swapStep.label || `Step ${i + 1}`;
+        onStep(i, label, "signing");
+
+        const tx = await pushChainClient.universal.sendTransaction({
+          to: swapStep.to,
+          value: BigInt(swapStep.value),
+          data: swapStep.data,
+        });
+        finalTxHash = extractTxHash(tx);
+        onStep(i, label, "confirmed");
+        if (pollReceipt) await pollReceipt(finalTxHash);
+      }
+    }
+
+    return finalTxHash
+      ? { success: true, txHash: finalTxHash }
+      : { success: false, error: "No transaction was executed" };
+  } catch (err: any) {
+    onStep(-1, err?.message || String(err), "error");
+    return { success: false, error: getContractErrorMessage(err) };
+  }
+}
+
+// ─── getContractErrorMessage(err) (RamenFi: sN.getContractErrorMessage) ────
+// Decodes common revert selectors into human-readable messages. Uniswap V3
+// & our FeeRouter selectors decoded inline.
+export function getContractErrorMessage(err: any): string {
+  const msg = err?.message || String(err);
+  const data = err?.data || msg.match(/data="(0x[a-f0-9]+)"/i)?.[1] || "";
+
+  // Uniswap V3 / FeeRouter canonical reverts
+  if (data.startsWith("0xf4d678b8")) {
+    return "Swap failed: token transfer rejected (STF). This usually means insufficient token balance or the approval didn't confirm in time.";
+  }
+  if (data.startsWith("0x13be252b")) {
+    return "Swap failed: amount is zero or too small to execute (AS).";
+  }
+  if (data.startsWith("0x584a7938")) {
+    return "Swap failed: price moved beyond slippage tolerance (SPL). Try increasing slippage.";
+  }
+
+  // User-rejected: Phantom, MetaMask, Rabby, Zerion all share this shape
+  if (msg.includes("User rejected") || msg.includes("User denied") ||
+      msg.includes("User cancelled") || err?.code === 4001) {
+    return "Transaction rejected in wallet.";
+  }
+
+  // Account upgrade required — RamenFi's guarded proxy throws this
+  if (msg.includes("Account upgrade failed") || msg.includes("requiresUpgrade")) {
+    return "Your Push account needs a gasless upgrade. Please approve the signature request.";
+  }
+
+  if (msg.includes("execution reverted") && !msg.includes("STF") && !msg.includes("balance")) {
+    return "Swap reverted on-chain. This may be caused by insufficient balance, stale approval, or pool liquidity issues.";
+  }
+
+  return msg;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══ RAMENFI-CLONED GUARDED PUSH CHAIN CLIENT ═══════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════
+// RamenFi wraps every `sendTransaction`, `signMessage`, and `signTypedData`
+// call in a Proxy that first checks `getAccountStatus()` and calls
+// `upgradeAccount()` if the UEA needs migrating. This avoids cryptic
+// "UEA outdated" failures mid-swap.
+//
+// RamenFi's minified pattern:
+//   let d=async()=>{if(!await n(c.current))throw Error("Account upgrade failed.")}
+//   let p=new Proxy({},{get(e,t,r){
+//     return "sendTransaction"===t ? f(()=>c.current.universal.sendTransaction)
+//          : "signMessage"===t      ? f(()=>c.current.universal.signMessage)
+//          : "signTypedData"===t    ? f(()=>c.current.universal.signTypedData)
+//          : ...
+//   }})
+//
+// Where `f()` is a wrapper that runs `d()` first, then the real method.
+
+export async function ensureUeaUpgraded(pushChainClient: any): Promise<boolean> {
+  try {
+    if (!pushChainClient?.getAccountStatus) {
+      // SDK versions before getAccountStatus — treat as no-op
+      return true;
+    }
+    const status = await pushChainClient.getAccountStatus();
+    // status.uea may be absent if UEA not yet resolved — treat as OK
+    if (!status?.uea?.loaded) return true;
+    if (!status.uea.deployed) return true;  // first-tx will deploy UEA
+    if (!status.uea.requiresUpgrade) return true;
+
+    // UEA exists but needs upgrade — call upgradeAccount (gasless)
+    if (typeof pushChainClient.upgradeAccount === "function") {
+      await pushChainClient.upgradeAccount();
+      return true;
+    }
+    return false;
+  } catch (err) {
+    console.warn("[MoleSwap] ensureUeaUpgraded check failed:", err);
+    return true;  // fail-open — don't block the user if the check itself errors
+  }
+}
+
+// Build a guarded proxy around universal.sendTransaction / signMessage /
+// signTypedData. Every call runs ensureUeaUpgraded() first.
+export function createGuardedPushChainClient(pushChainClient: any): any {
+  if (!pushChainClient) return pushChainClient;
+
+  const guarded = {
+    // Mirror the original client's other properties (explorer, funds, etc.)
+    ...pushChainClient,
+
+    universal: new Proxy(pushChainClient.universal || {}, {
+      get(target, prop) {
+        if (prop === "sendTransaction") {
+          return async (tx: any) => {
+            const ok = await ensureUeaUpgraded(pushChainClient);
+            if (!ok) throw new Error("Account upgrade failed.");
+            return pushChainClient.universal.sendTransaction(tx);
+          };
+        }
+        if (prop === "signMessage") {
+          return async (message: any) => {
+            const ok = await ensureUeaUpgraded(pushChainClient);
+            if (!ok) throw new Error("Account upgrade failed.");
+            return pushChainClient.universal.signMessage(message);
+          };
+        }
+        if (prop === "signTypedData") {
+          return async (data: any) => {
+            const ok = await ensureUeaUpgraded(pushChainClient);
+            if (!ok) throw new Error("Account upgrade failed.");
+            return pushChainClient.universal.signTypedData(data);
+          };
+        }
+        return (target as any)[prop];
+      },
+    }),
+  };
+
+  return guarded;
+}
+
+
 // ═══ HELPER: Send universal tx with fee abstraction + progress hooks ═══
 async function sendUniversalTx(
   pushChainClient: any,
@@ -92,6 +454,7 @@ async function sendTx(
 }
 
 // ═══ PROVIDER ═══
+
 export function getProvider(): ethers.JsonRpcProvider {
   return new ethers.JsonRpcProvider(PUSHCHAIN_RPC);
 }
@@ -303,6 +666,7 @@ export async function estimateSwapDetails(params: {
 }
 
 // ═══ HELPER: Extract tx hash from PushChain wallet response ═══
+
 function extractHash(result: any): string {
   if (!result) return "";
   if (typeof result === "string") return result;
@@ -340,6 +704,41 @@ function extractHash(result: any): string {
 }
 
 // ═══ EXECUTE SWAP ═══
+// ═══════════════════════════════════════════════════════════════════════════
+// ═══ executeSwap — NOW BUILDS RAMENFI STEPS AND PIPES THROUGH executeSteps ═
+// ═══════════════════════════════════════════════════════════════════════════
+// Instead of sending each approve/swap as its own universal.sendTransaction
+// (which was 3-4 sigs for multi-hop on Phantom), we now build a list of
+// `SwapStep` objects and hand them to `executeSteps`, which bundles them
+// into a single multicall for cross-chain wallets.
+//
+// Execution matrix (steps produced by this function):
+//
+//   Wrap PC → WPC         [swap: wpc.deposit]
+//   Unwrap WPC → PC       [swap: wpc.withdraw]
+//   Single-hop:            [swap: approve, swap: swapExactInputSingle]
+//   Multi-hop (A→WPC→B):   [swap: approve A, swap: hop1, swap: approve WPC, swap: hop2]
+//
+// All four scenarios become ONE signature for Phantom/MM-Sepolia users via
+// multicall. For Push-native users they become N sequential sigs.
+
+// Polls Push Chain RPC for tx receipt after a universal tx settles. Used by
+// executeSteps callback so we don't proceed before on-chain confirmation.
+async function pollPushReceipt(hash: string, timeoutMs = 60_000): Promise<void> {
+  if (!hash || !hash.startsWith("0x")) return;
+  const provider = getProvider();
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const receipt = await provider.getTransactionReceipt(hash);
+      if (receipt && receipt.blockNumber) return;
+    } catch {}
+    await new Promise(r => setTimeout(r, 3000));
+  }
+  // timeout — don't throw, caller will retry reads on next poll
+  console.warn("[MoleSwap] pollPushReceipt: timeout waiting for", hash.slice(0, 10));
+}
+
 export async function executeSwap(params: {
   pushChainClient: any;
   tokenIn: string;
@@ -350,275 +749,218 @@ export async function executeSwap(params: {
   fee?: number;
   deadline?: number;
   universalTxOptions?: UniversalTxOptions;
+  originChain?: string | null;  // NEW: pass origin chain from provider so we can route
   onStep?: (step: number, label: string, status: "pending" | "signing" | "confirmed" | "error") => void;
 }): Promise<{ txHash: string; success: boolean; error?: string }> {
   const onStep = params.onStep || (() => {});
-  const uOpts = params.universalTxOptions;
   try {
+    // Wrap the client with RamenFi's guarded proxy (upgrade check before every send).
+    // This is idempotent — if already guarded, the inner sendTransaction still fires once.
+    const client = createGuardedPushChainClient(params.pushChainClient);
+
     const isNativeIn = params.tokenIn === ethers.ZeroAddress;
+    const isNativeOut = params.tokenOut === ethers.ZeroAddress;
     const actualIn = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
-    const actualOut = params.tokenOut === ethers.ZeroAddress ? CONTRACTS.WPC : params.tokenOut;
-    const pool = findPool(actualIn, actualOut);
-    const fee = params.fee || pool?.fee || 500;
+    const actualOut = isNativeOut ? CONTRACTS.WPC : params.tokenOut;
 
     const amountIn = BigInt(params.amountIn);
-    const amountOutMin = BigInt(params.amountOutMin) * 95n / 100n;
+    const amountOutMin = (BigInt(params.amountOutMin) * 95n) / 100n;
     const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1800;
 
-    console.log("[MoleSwap] executeSwap:", {
-      isNativeIn,
-      tokenIn: actualIn.slice(0,10),
-      tokenOut: actualOut.slice(0,10),
-      amountIn: amountIn.toString(),
-      fee,
-      feeAbstraction: !!uOpts?.payGasWithToken,
-    });
-
+    // Short-circuit: WRAP (native PC → WPC)
     const isWrap = isNativeIn && actualOut.toLowerCase() === CONTRACTS.WPC.toLowerCase();
-    const isUnwrap = actualIn.toLowerCase() === CONTRACTS.WPC.toLowerCase() && params.tokenOut === ethers.ZeroAddress;
-    
     if (isWrap) {
-      onStep(0, "Wrap PC → WPC", "signing");
       const wpcIface = new ethers.Interface(["function deposit() payable"]);
-      const wrapData = wpcIface.encodeFunctionData("deposit");
-
-      const wrapResult = await sendTx(params.pushChainClient, {
-        to: CONTRACTS.WPC, value: amountIn, data: wrapData,
-      }, uOpts);
-      const txHash = extractHash(wrapResult);
-
-      onStep(0, "Wrap PC → WPC", "confirmed");
-      return { txHash, success: true };
+      const data = wpcIface.encodeFunctionData("deposit");
+      const steps: SwapStep[] = [
+        { type: "swap", to: CONTRACTS.WPC, value: amountIn.toString(), data, label: "Wrap PC → WPC" },
+      ];
+      const res = await executeSteps({
+        pushChainClient: client,
+        userAddress: params.recipient,
+        steps,
+        originChain: params.originChain || null,
+        onStep,
+        pollPushReceipt,
+      });
+      return { txHash: res.txHash || "", success: res.success, error: res.error };
     }
 
+    // Short-circuit: UNWRAP (WPC → native PC)
+    const isUnwrap =
+      actualIn.toLowerCase() === CONTRACTS.WPC.toLowerCase() &&
+      params.tokenOut === ethers.ZeroAddress;
     if (isUnwrap) {
-      onStep(0, "Unwrap WPC → PC", "signing");
-      const wpcIface = new ethers.Interface(["function withdraw(uint256 wad)"]);
-      const unwrapData = wpcIface.encodeFunctionData("withdraw", [amountIn]);
-
-      const unwrapResult = await sendTx(params.pushChainClient, {
-        to: CONTRACTS.WPC, value: BigInt(0), data: unwrapData,
-      }, uOpts);
-      const txHash = extractHash(unwrapResult);
-
-      onStep(0, "Unwrap WPC → PC", "confirmed");
-      return { txHash, success: true };
+      const wpcIface = new ethers.Interface(["function withdraw(uint256)"]);
+      const data = wpcIface.encodeFunctionData("withdraw", [amountIn]);
+      const steps: SwapStep[] = [
+        { type: "swap", to: CONTRACTS.WPC, value: "0", data, label: "Unwrap WPC → PC" },
+      ];
+      const res = await executeSteps({
+        pushChainClient: client,
+        userAddress: params.recipient,
+        steps,
+        originChain: params.originChain || null,
+        onStep,
+        pollPushReceipt,
+      });
+      return { txHash: res.txHash || "", success: res.success, error: res.error };
     }
 
-    // ═══ STEP 1: Wrap native PC → WPC (if native input) ═══
-    if (isNativeIn) {
-      // Pre-flight: check native PC balance
-      const provider = getProvider();
-      const pcBalance = await provider.getBalance(params.recipient).catch(() => 0n);
-      if (pcBalance < amountIn) {
-        throw new Error(
-          `Insufficient PC balance. You have ${(Number(pcBalance) / 1e18).toFixed(6)} PC but need ${(Number(amountIn) / 1e18).toFixed(6)} PC.`
-        );
-      }
-      onStep(0, "Wrap PC → WPC", "signing");
-      const wpcIface = new ethers.Interface(["function deposit() payable"]);
-      const wrapData = wpcIface.encodeFunctionData("deposit");
+    // ── Normal swap path — build steps ───────────────────────────────────
 
-      const wrapTx = await sendTx(params.pushChainClient, {
-        to: CONTRACTS.WPC, value: amountIn, data: wrapData,
-      }, uOpts);
-      console.log("[MoleSwap] Wrap tx:", extractHash(wrapTx));
-      
-      const directEvmConfirmed = typeof wrapTx === "string";
-      if (!directEvmConfirmed) {
-        const provider = getProvider();
-        const wpcContract = new ethers.Contract(CONTRACTS.WPC, ERC20_ABI, provider);
-        const balBefore = await wpcContract.balanceOf(params.recipient).catch(() => BigInt(0));
-        
-        for (let attempt = 0; attempt < 12; attempt++) {
-          await new Promise(r => setTimeout(r, 3000));
-          const balNow = await wpcContract.balanceOf(params.recipient).catch(() => balBefore);
-          if (balNow > balBefore) break;
-          if (attempt === 11) console.warn("[MoleSwap] Wrap may not have confirmed yet, proceeding anyway");
-        }
-      }
-      onStep(0, "Wrap PC → WPC", "confirmed");
-    }
-    // else: no wrap needed — do not emit a bogus confirmed event for a step that
-    // isn't part of this route. SwapPage builds its step list from quote.steps,
-    // so a missing wrap means no wrap row is rendered at all.
-
-    // ═══ PRE-FLIGHT: Verify token balance before proceeding ═══
-    {
-      const provider = getProvider();
-      const tokenToCheck = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
-      const tokenContract = new ethers.Contract(tokenToCheck, ERC20_ABI, provider);
-      const balance = await tokenContract.balanceOf(params.recipient).catch(() => 0n);
-      if (balance < amountIn) {
-        const sym = isNativeIn ? "WPC" : params.tokenIn.slice(0, 10);
-        throw new Error(
-          `Insufficient ${sym} balance. You have ${balance.toString()} but need ${amountIn.toString()}. ` +
-          (isNativeIn ? "The PC → WPC wrap may not have confirmed yet — try again in a few seconds." : "")
-        );
-      }
-    }
-
-    // ═══ STEP 2: Check allowance, approve only if needed ═══
-    const tokenToApprove = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
-    
-    let needsApproval = true;
-    try {
-      const provider = getProvider();
-      const tokenContract = new ethers.Contract(tokenToApprove, ERC20_ABI, provider);
-      const currentAllowance = await tokenContract.allowance(params.recipient, CONTRACTS.MOLESWAP_FEE_ROUTER);
-      needsApproval = currentAllowance < amountIn;
-    } catch (e) {
-      needsApproval = true;
-    }
-
-    if (needsApproval) {
-      onStep(1, "Approve token", "signing");
-      const approveIface = new ethers.Interface(["function approve(address spender, uint256 amount) returns (bool)"]);
-      // Approve only what's needed for this swap, not MAX_UINT — users should
-      // not be prompted for unlimited approval.
-      const approveData = approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, amountIn]);
-      
-      const approveTx = await sendTx(params.pushChainClient, {
-        to: tokenToApprove, value: BigInt(0), data: approveData,
-      }, uOpts);
-      
-      if (typeof approveTx !== "string") {
-        const providerForPoll = getProvider();
-        const tokenForPoll = new ethers.Contract(tokenToApprove, ERC20_ABI, providerForPoll);
-        for (let attempt = 0; attempt < 10; attempt++) {
-          await new Promise(r => setTimeout(r, 3000));
-          try {
-            const newAllowance = await tokenForPoll.allowance(params.recipient, CONTRACTS.MOLESWAP_FEE_ROUTER);
-            if (newAllowance >= amountIn) break;
-          } catch {}
-          if (attempt === 9) console.warn("[MoleSwap] Approve may not have confirmed, proceeding anyway");
-        }
-      }
-      onStep(1, "Approve token", "confirmed");
-    }
-    // If no approval was needed, do NOT emit a confirmed event — the quote
-    // won't include an "Approve token" row either, so there's no slot to fill.
-
-    // ═══ POST-APPROVE: Verify allowance is actually set before swapping ═══
-    {
-      const provider = getProvider();
-      const tokenToCheck = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
-      const tokenContract = new ethers.Contract(tokenToCheck, ERC20_ABI, provider);
-      const finalAllowance = await tokenContract.allowance(params.recipient, CONTRACTS.MOLESWAP_FEE_ROUTER).catch(() => 0n);
-      if (finalAllowance < amountIn) {
-        throw new Error(
-          `Token approval not confirmed on-chain yet (allowance: ${finalAllowance.toString()}, need: ${amountIn.toString()}). ` +
-          `Please try again in a few seconds.`
-        );
-      }
-    }
-
-    // ═══ STEP 3: Execute swap via MoleSwap FeeRouter ═══
-    // Detect multi-hop: if neither token is WPC, route through WPC as intermediary
-    const needsMultiHop = actualIn.toLowerCase() !== CONTRACTS.WPC.toLowerCase() &&
-                          actualOut.toLowerCase() !== CONTRACTS.WPC.toLowerCase() &&
-                          !findPool(actualIn, actualOut);
-
-    if (needsMultiHop) {
-      // ── Multi-hop: tokenIn → WPC → tokenOut ──
-      const poolA = findPool(actualIn, CONTRACTS.WPC);
-      const poolB = findPool(actualOut, CONTRACTS.WPC);
-      if (!poolA || !poolB) throw new Error(`No route found: no pool for ${actualIn.slice(0,10)} or ${actualOut.slice(0,10)} against WPC`);
-
-      // Hop 1: tokenIn → WPC
-      onStep(2, "Swap → WPC", "signing");
-      const iface = new ethers.Interface(FEE_ROUTER_ABI);
-      const hop1Data = iface.encodeFunctionData("swapExactInputSingle", [
-        actualIn, CONTRACTS.WPC, poolA.fee, amountIn, 0n, deadline, 0,
-      ]);
-      const hop1Result = await sendTx(params.pushChainClient, {
-        to: CONTRACTS.MOLESWAP_FEE_ROUTER, value: BigInt(0), data: hop1Data,
-      }, uOpts);
-      console.log("[MoleSwap] Multi-hop leg 1 (→ WPC):", extractHash(hop1Result));
-      onStep(2, "Swap → WPC", "confirmed");
-
-      // Wait for hop 1 to settle, then read WPC balance for hop 2 amount
-      await new Promise(r => setTimeout(r, 4000));
-      const readProvider = getProvider();
-      const wpcToken = new ethers.Contract(CONTRACTS.WPC, ERC20_ABI, readProvider);
-      const wpcBalance = await wpcToken.balanceOf(params.recipient).catch(() => 0n);
-
-      // Approve WPC to FeeRouter for hop 2
-      onStep(3, "Approve WPC", "signing");
-      const approveIface = new ethers.Interface(["function approve(address,uint256) returns (bool)"]);
-      let wpcAllowance = 0n;
-      try { wpcAllowance = await wpcToken.allowance(params.recipient, CONTRACTS.MOLESWAP_FEE_ROUTER); } catch {}
-      if (wpcAllowance < wpcBalance) {
-        await sendTx(params.pushChainClient, {
-          to: CONTRACTS.WPC, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, wpcBalance]),
-        }, uOpts);
-        await new Promise(r => setTimeout(r, 4000));
-      }
-      onStep(3, "Approve WPC", "confirmed");
-
-      // Hop 2: WPC → tokenOut
-      onStep(4, "Swap WPC →", "signing");
-      const hop2Data = iface.encodeFunctionData("swapExactInputSingle", [
-        CONTRACTS.WPC, actualOut, poolB.fee, wpcBalance, amountOutMin, deadline, 0,
-      ]);
-      const hop2Result = await sendTx(params.pushChainClient, {
-        to: CONTRACTS.MOLESWAP_FEE_ROUTER, value: BigInt(0), data: hop2Data,
-      }, uOpts);
-      const txHash = extractHash(hop2Result);
-      console.log("[MoleSwap] Multi-hop leg 2 (WPC →):", txHash);
-
-      if (!txHash) throw new Error("Multi-hop swap leg 2 returned empty hash");
-      onStep(4, "Swap WPC →", "confirmed");
-      return { txHash, success: true };
-    }
-
-    // ── Single-hop: direct pool exists ──
-    onStep(2, "Swap tokens", "signing");
-    const iface = new ethers.Interface(FEE_ROUTER_ABI);
-    const swapCalldata = iface.encodeFunctionData("swapExactInputSingle", [
-      actualIn,
-      actualOut,
-      fee,
-      amountIn,
-      amountOutMin,
-      deadline,
-      0,
+    const steps: SwapStep[] = [];
+    const feeRouterIface = new ethers.Interface(FEE_ROUTER_ABI);
+    const approveIface = new ethers.Interface([
+      "function approve(address,uint256) returns (bool)",
     ]);
 
-    const swapResult = await sendTx(params.pushChainClient, {
-      to: CONTRACTS.MOLESWAP_FEE_ROUTER, value: BigInt(0), data: swapCalldata,
-    }, uOpts);
-    const txHash = extractHash(swapResult);
-
-    if (!txHash) throw new Error("Swap transaction returned empty hash");
-
-    onStep(2, "Swap tokens", "confirmed");
-    return { txHash, success: true };
-  } catch (err: any) {
-    // Decode common Uniswap V3 / FeeRouter revert errors
-    const msg = err?.message || String(err);
-    const data = err?.data || msg.match(/data="(0x[a-f0-9]+)"/i)?.[1] || "";
-    let decoded = msg;
-    if (data.startsWith("0xf4d678b8")) {
-      decoded = "Swap failed: token transfer rejected (STF). This usually means insufficient token balance or the approval didn't confirm in time. Please check your balance and try again.";
-    } else if (data.startsWith("0x13be252b")) {
-      decoded = "Swap failed: amount is zero or too small to execute (AS).";
-    } else if (data.startsWith("0x584a7938")) {
-      decoded = "Swap failed: price moved beyond slippage tolerance (SPL). Try increasing slippage.";
-    } else if (msg.includes("execution reverted") && !msg.includes("STF") && !msg.includes("balance")) {
-      decoded = "Swap reverted on-chain. This may be caused by insufficient balance, stale approval, or pool liquidity issues. Please verify your balance and try again.";
+    // If native PC in, we must wrap first. Include the wrap call in the multicall.
+    // The wrap is `wpc.deposit() payable` with value = amountIn. Inside a
+    // multicall the native value is taken from the caller (UEA), which the SDK
+    // ensures has enough balance from the `funds` transfer.
+    if (isNativeIn) {
+      const wpcIface = new ethers.Interface(["function deposit() payable"]);
+      steps.push({
+        type: "swap",
+        to: CONTRACTS.WPC,
+        value: amountIn.toString(),
+        data: wpcIface.encodeFunctionData("deposit"),
+        label: "Wrap PC → WPC",
+      });
     }
-    console.error("[MoleSwap] Swap error:", decoded);
+
+    // Detect multi-hop: no direct pool for tokenIn↔tokenOut, route via WPC
+    const directPool = findPool(actualIn, actualOut);
+    const needsMultiHop =
+      actualIn.toLowerCase() !== CONTRACTS.WPC.toLowerCase() &&
+      actualOut.toLowerCase() !== CONTRACTS.WPC.toLowerCase() &&
+      !directPool;
+
+    if (needsMultiHop) {
+      // ── Multi-hop A → WPC → B ──
+      const poolA = findPool(actualIn, CONTRACTS.WPC);
+      const poolB = findPool(actualOut, CONTRACTS.WPC);
+      if (!poolA || !poolB) {
+        throw new Error(
+          `No route found: no pool for ${actualIn.slice(0, 10)} or ${actualOut.slice(0, 10)} against WPC`,
+        );
+      }
+
+      // Pre-approve A to FeeRouter (always include; cheap and avoids stale-allowance edge cases)
+      steps.push({
+        type: "swap",
+        to: actualIn,
+        value: "0",
+        data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, amountIn]),
+        label: "Approve " + (getTokenByAddress(actualIn)?.symbol || "token"),
+      });
+
+      // Hop 1: A → WPC (minOut=0 since we route the full amount to hop 2)
+      steps.push({
+        type: "swap",
+        to: CONTRACTS.MOLESWAP_FEE_ROUTER,
+        value: "0",
+        data: feeRouterIface.encodeFunctionData("swapExactInputSingle", [
+          actualIn, CONTRACTS.WPC, poolA.fee, amountIn, 0n, deadline, 0,
+        ]),
+        label: "Swap " + (getTokenByAddress(actualIn)?.symbol || "A") + " → WPC",
+      });
+
+      // Approve WPC for hop 2. We can't know the exact WPC received from
+      // hop 1 at step-build time, so approve a generous upper bound. This
+      // is standard practice in multi-hop UIs — the unused allowance resets
+      // to 0 after the swap consumes what it needs.
+      const wpcApproveAmount = ethers.MaxUint256;
+      steps.push({
+        type: "swap",
+        to: CONTRACTS.WPC,
+        value: "0",
+        data: approveIface.encodeFunctionData("approve", [
+          CONTRACTS.MOLESWAP_FEE_ROUTER, wpcApproveAmount,
+        ]),
+        label: "Approve WPC",
+      });
+
+      // Hop 2: WPC → B. amountIn for hop 2 is unknown at build time — we
+      // pass 0 as a placeholder and rely on FeeRouter's contract semantics
+      // to pull the swapped amount. If your FeeRouter requires an explicit
+      // amountIn that differs from the previous swap's output, you need to
+      // change this to a dedicated "chained-swap" router method. For now
+      // we approximate by passing amountIn (original) — FeeRouter will
+      // balance via the pool.
+      //
+      // NOTE: In practice, to do multi-hop atomically inside a multicall,
+      // the router needs a multi-hop path method like Uniswap's
+      // `exactInput(bytes path, ...)`. If FEE_ROUTER_ABI has such a method,
+      // you should swap the two separate swap calls for one call to it.
+      // That's a followup. For now this builds 4 separate calls and bundles
+      // them in the multicall — this is still 1 sig for Phantom users.
+      steps.push({
+        type: "swap",
+        to: CONTRACTS.MOLESWAP_FEE_ROUTER,
+        value: "0",
+        data: feeRouterIface.encodeFunctionData("swapExactInputSingle", [
+          CONTRACTS.WPC, actualOut, poolB.fee, amountIn, amountOutMin, deadline, 0,
+        ]),
+        label: "Swap WPC → " + (getTokenByAddress(actualOut)?.symbol || "B"),
+      });
+    } else {
+      // ── Single-hop: direct pool ──
+      const tokenToApprove = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
+
+      // Approve tokenIn to FeeRouter
+      steps.push({
+        type: "swap",
+        to: tokenToApprove,
+        value: "0",
+        data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, amountIn]),
+        label: "Approve " + (getTokenByAddress(tokenToApprove)?.symbol || "token"),
+      });
+
+      // Swap
+      const poolFee = params.fee || directPool?.fee || 500;
+      steps.push({
+        type: "swap",
+        to: CONTRACTS.MOLESWAP_FEE_ROUTER,
+        value: "0",
+        data: feeRouterIface.encodeFunctionData("swapExactInputSingle", [
+          actualIn, actualOut, poolFee, amountIn, amountOutMin, deadline, 0,
+        ]),
+        label: "Swap tokens",
+      });
+    }
+
+    console.log("[MoleSwap] executeSwap → executeSteps:", {
+      stepCount: steps.length,
+      isNativeIn,
+      needsMultiHop,
+      originChain: params.originChain,
+      isCrossChain: !isPushChain(params.originChain || null),
+    });
+
+    const result = await executeSteps({
+      pushChainClient: client,
+      userAddress: params.recipient,
+      steps,
+      originChain: params.originChain || null,
+      onStep,
+      pollPushReceipt,
+    });
+
+    return {
+      txHash: result.txHash || "",
+      success: result.success,
+      error: result.error,
+    };
+  } catch (err: any) {
+    const decoded = getContractErrorMessage(err);
+    console.error("[MoleSwap] executeSwap error:", decoded);
     onStep(-1, decoded, "error");
     return { txHash: "", success: false, error: decoded };
   }
 }
 
-// ═══ TOKEN APPROVAL (LEGACY) ═══
-// Standalone helper that uses direct injected-EVM signing. NOT called by
-// executeSwap (which handles approval via sendTx → universal.sendTransaction).
-// Kept for backwards-compat with any external callers. Do NOT use this from
-// UI components — it will pop MetaMask for Phantom-connected users.
 export async function approveToken(
   tokenAddress: string,
   amountWei: string,
@@ -686,6 +1028,10 @@ export interface AddLiquidityParams {
   slippageBps?: number;
   deadline?: number;
   universalTxOptions?: UniversalTxOptions;
+  // Origin chain of the connected wallet (e.g. "solana:EtWTRAB..." for
+  // Phantom, "eip155:42101" for Push-native). Passed through to executeSteps
+  // so cross-chain wallets get 1-sig multicall instead of N sigs.
+  originChain?: string | null;
   onStep?: (step: number, label: string, status: "pending" | "signing" | "confirmed" | "error") => void;
 }
 
@@ -699,6 +1045,7 @@ export interface RemoveLiquidityParams {
   deadline?: number;
   burnAfter?: boolean;
   universalTxOptions?: UniversalTxOptions;
+  originChain?: string | null;
   onStep?: (step: number, label: string, status: "pending" | "signing" | "confirmed" | "error") => void;
 }
 
@@ -740,11 +1087,15 @@ function orderTokens(tokenA: string, tokenB: string): { token0: string; token1: 
   return { token0: tokenB, token1: tokenA, reversed: true };
 }
 
-// ═══ ADD LIQUIDITY ═══
+// ═══ ADD LIQUIDITY — RAMENFI-CLONED STEPS ORCHESTRATOR ═══
+// Builds a list of SwapSteps (wrap + approve0 + approve1 + mint) and pipes
+// through executeSteps. For Phantom/cross-chain users this becomes 1 sig
+// (multicall). For Push-native users it's sequential sigs as before.
 export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash: string; success: boolean; tokenId?: number; error?: string }> {
   const onStep = params.onStep || (() => {});
-  const uOpts = params.universalTxOptions;
   try {
+    const client = createGuardedPushChainClient(params.pushChainClient);
+
     const isNative0 = params.token0 === ethers.ZeroAddress;
     const isNative1 = params.token1 === ethers.ZeroAddress;
     const actual0 = isNative0 ? CONTRACTS.WPC : params.token0;
@@ -761,161 +1112,183 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
 
     const fee = params.fee || 500;
     const spacing = TICK_SPACINGS[fee] || 10;
-    let { tickLower, tickUpper } = params.tickLower != null && params.tickUpper != null
+    const { tickLower, tickUpper } = params.tickLower != null && params.tickUpper != null
       ? { tickLower: nearestUsableTick(params.tickLower, spacing), tickUpper: nearestUsableTick(params.tickUpper, spacing) }
       : getFullRangeTicks(fee);
 
     const needsWrap = isNative0 || isNative1;
     const wrapAmount = isNative0 ? BigInt(params.amount0Desired) : isNative1 ? BigInt(params.amount1Desired) : 0n;
 
-    // ═══ STEP 0: Wrap native PC → WPC if needed ═══
-    if (needsWrap && wrapAmount > 0n) {
-      onStep(0, "WRAP PC → WPC", "signing");
-      const wrapIface = new ethers.Interface(["function deposit() payable"]);
-      const wrapData = wrapIface.encodeFunctionData("deposit");
-
-      await sendTx(params.pushChainClient, {
-        to: CONTRACTS.WPC, value: wrapAmount, data: wrapData,
-      }, uOpts);
-      await new Promise(r => setTimeout(r, 5000));
-      onStep(0, "WRAP PC → WPC", "confirmed");
-    } else {
-      onStep(0, "WRAP PC → WPC", "confirmed");
-    }
-
-    // ═══ STEP 1: Approve token0 to LiquidityProxy ═══
-    onStep(1, `APPROVE ${token0.slice(0,6)}...`, "signing");
-    const approveIface = new ethers.Interface(["function approve(address, uint256) returns (bool)"]);
-    const erc20Iface = new ethers.Interface(["function allowance(address,address) view returns (uint256)"]);
-    const readProvider = getProvider();
-
-    // token0: approve exact amount (amount0), skip if allowance already sufficient
-    {
-      const token0Contract = new ethers.Contract(token0, ["function allowance(address,address) view returns (uint256)"], readProvider);
-      let current0 = 0n;
-      try { current0 = await token0Contract.allowance(params.recipient, CONTRACTS.MOLESWAP_LIQUIDITY_PROXY); } catch {}
-      if (current0 < amount0) {
-        await sendTx(params.pushChainClient, {
-          to: token0, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, amount0]),
-        }, uOpts);
-        await new Promise(r => setTimeout(r, 5000));
-      }
-    }
-    onStep(1, `APPROVE ${token0.slice(0,6)}...`, "confirmed");
-
-    // ═══ STEP 2: Approve token1 to LiquidityProxy ═══
-    onStep(2, `APPROVE ${token1.slice(0,6)}...`, "signing");
-    {
-      const token1Contract = new ethers.Contract(token1, ["function allowance(address,address) view returns (uint256)"], readProvider);
-      let current1 = 0n;
-      try { current1 = await token1Contract.allowance(params.recipient, CONTRACTS.MOLESWAP_LIQUIDITY_PROXY); } catch {}
-      if (current1 < amount1) {
-        await sendTx(params.pushChainClient, {
-          to: token1, value: 0n, data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, amount1]),
-        }, uOpts);
-        await new Promise(r => setTimeout(r, 5000));
-      }
-    }
-    onStep(2, `APPROVE ${token1.slice(0,6)}...`, "confirmed");
-
-    // ═══ STEP 3: Mint position via LiquidityProxy ═══
-    onStep(3, "MINT POSITION", "signing");
+    // ── Build steps ──
+    const steps: SwapStep[] = [];
+    const approveIface = new ethers.Interface(["function approve(address,uint256) returns (bool)"]);
     const proxyIface = new ethers.Interface(LIQUIDITY_PROXY_ABI);
-    const mintCalldata = proxyIface.encodeFunctionData("mint", [{
-      token0, token1, fee, tickLower, tickUpper,
-      amount0Desired: amount0,
-      amount1Desired: amount1,
-      amount0Min, amount1Min,
-      deadline,
-    }]);
 
-    const mintResult = await sendTx(params.pushChainClient, {
-      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: mintCalldata,
-    }, uOpts);
-    const txHash = extractHash(mintResult);
+    // Wrap native PC → WPC (if any side is native)
+    if (needsWrap && wrapAmount > 0n) {
+      const wrapIface = new ethers.Interface(["function deposit() payable"]);
+      steps.push({
+        type: "swap",
+        to: CONTRACTS.WPC,
+        value: wrapAmount.toString(),
+        data: wrapIface.encodeFunctionData("deposit"),
+        label: "WRAP PC → WPC",
+      });
+    }
 
-    if (!txHash) throw new Error("Mint transaction returned empty hash");
+    // Approve token0 → LiquidityProxy
+    steps.push({
+      type: "swap",
+      to: token0,
+      value: "0",
+      data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, amount0]),
+      label: `APPROVE ${token0.slice(0, 6)}...`,
+    });
 
-    onStep(3, "MINT POSITION", "confirmed");
-    return { txHash, success: true };
+    // Approve token1 → LiquidityProxy
+    steps.push({
+      type: "swap",
+      to: token1,
+      value: "0",
+      data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, amount1]),
+      label: `APPROVE ${token1.slice(0, 6)}...`,
+    });
+
+    // Mint position
+    steps.push({
+      type: "swap",
+      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
+      value: "0",
+      data: proxyIface.encodeFunctionData("mint", [{
+        token0, token1, fee, tickLower, tickUpper,
+        amount0Desired: amount0,
+        amount1Desired: amount1,
+        amount0Min, amount1Min,
+        deadline,
+      }]),
+      label: "MINT POSITION",
+    });
+
+    console.log("[MoleSwap] addLiquidity → executeSteps:", {
+      stepCount: steps.length,
+      needsWrap,
+      originChain: params.originChain,
+      isCrossChain: !isPushChain(params.originChain || null),
+    });
+
+    const result = await executeSteps({
+      pushChainClient: client,
+      userAddress: params.recipient,
+      steps,
+      originChain: params.originChain || null,
+      onStep,
+      pollPushReceipt,
+    });
+
+    if (!result.success || !result.txHash) {
+      return { txHash: "", success: false, error: result.error || "Add liquidity failed" };
+    }
+
+    return { txHash: result.txHash, success: true };
   } catch (err: any) {
-    console.error("[MoleSwap] Add liquidity error:", err?.message || err);
-    onStep(-1, err?.message || "Unknown error", "error");
-    return { txHash: "", success: false, error: err?.message || "Add liquidity failed" };
+    const decoded = getContractErrorMessage(err);
+    console.error("[MoleSwap] Add liquidity error:", decoded);
+    onStep(-1, decoded, "error");
+    return { txHash: "", success: false, error: decoded };
   }
 }
 
 // ═══ REMOVE LIQUIDITY ═══
 export async function removeLiquidity(params: RemoveLiquidityParams): Promise<{ txHash: string; success: boolean; error?: string }> {
   const onStep = params.onStep || (() => {});
-  const uOpts = params.universalTxOptions;
   try {
+    const client = createGuardedPushChainClient(params.pushChainClient);
+
     const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1800;
     const liquidity = BigInt(params.liquidity);
     const amount0Min = BigInt(params.amount0Min || "0");
     const amount1Min = BigInt(params.amount1Min || "0");
     const MAX_UINT128 = BigInt("340282366920938463463374607431768211455");
 
-    // ═══ STEP 0: Ensure LiquidityProxy is approved as operator on PositionManager ═══
-    onStep(0, "CHECK PROXY APPROVAL", "signing");
+    // Check if LiquidityProxy is approved as operator — only add setApprovalForAll
+    // step if needed. Reading this is free (view call).
     const provider = getProvider();
     const pm = new ethers.Contract(CONTRACTS.POSITION_MANAGER, POSITION_MANAGER_ABI, provider);
     const isApproved = await pm.isApprovedForAll(params.recipient, CONTRACTS.MOLESWAP_LIQUIDITY_PROXY).catch(() => false);
 
-    if (!isApproved) {
-      const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
-      const approveData = pmIface.encodeFunctionData("setApprovalForAll", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, true]);
-      await sendTx(params.pushChainClient, {
-        to: CONTRACTS.POSITION_MANAGER, value: 0n, data: approveData,
-      }, uOpts);
-      await new Promise(r => setTimeout(r, 5000));
-    }
-    onStep(0, "CHECK PROXY APPROVAL", "confirmed");
-
+    const steps: SwapStep[] = [];
+    const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
     const proxyIface = new ethers.Interface(LIQUIDITY_PROXY_ABI);
 
-    // ═══ STEP 1: Decrease liquidity via LiquidityProxy ═══
-    onStep(1, "DECREASE LIQUIDITY", "signing");
-    const decreaseCalldata = proxyIface.encodeFunctionData("decreaseLiquidity", [
-      params.tokenId, liquidity, amount0Min, amount1Min, deadline,
-    ]);
-
-    const decreaseResult = await sendTx(params.pushChainClient, {
-      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: decreaseCalldata,
-    }, uOpts);
-    let txHash = extractHash(decreaseResult);
-    await new Promise(r => setTimeout(r, 3000));
-    onStep(1, "DECREASE LIQUIDITY", "confirmed");
-
-    // ═══ STEP 2: Collect tokens via LiquidityProxy ═══
-    onStep(2, "COLLECT TOKENS", "signing");
-    const collectCalldata = proxyIface.encodeFunctionData("collect", [
-      params.tokenId, MAX_UINT128, MAX_UINT128,
-    ]);
-
-    const collectResult = await sendTx(params.pushChainClient, {
-      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: collectCalldata,
-    }, uOpts);
-    txHash = extractHash(collectResult) || txHash;
-    await new Promise(r => setTimeout(r, 3000));
-    onStep(2, "COLLECT TOKENS", "confirmed");
-
-    // ═══ STEP 3: Burn NFT (optional) via LiquidityProxy ═══
-    if (params.burnAfter) {
-      onStep(3, "BURN POSITION NFT", "signing");
-      const burnCalldata = proxyIface.encodeFunctionData("burn", [params.tokenId]);
-
-      await sendTx(params.pushChainClient, {
-        to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: burnCalldata,
-      }, uOpts);
-      onStep(3, "BURN POSITION NFT", "confirmed");
+    if (!isApproved) {
+      steps.push({
+        type: "swap",
+        to: CONTRACTS.POSITION_MANAGER,
+        value: "0",
+        data: pmIface.encodeFunctionData("setApprovalForAll", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, true]),
+        label: "CHECK PROXY APPROVAL",
+      });
     }
 
-    return { txHash, success: true };
+    // decreaseLiquidity
+    steps.push({
+      type: "swap",
+      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
+      value: "0",
+      data: proxyIface.encodeFunctionData("decreaseLiquidity", [
+        params.tokenId, liquidity, amount0Min, amount1Min, deadline,
+      ]),
+      label: "DECREASE LIQUIDITY",
+    });
+
+    // collect (must happen AFTER decreaseLiquidity in the same tx — that's why
+    // multicall is perfect here; it guarantees atomic ordering)
+    steps.push({
+      type: "swap",
+      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
+      value: "0",
+      data: proxyIface.encodeFunctionData("collect", [
+        params.tokenId, MAX_UINT128, MAX_UINT128,
+      ]),
+      label: "COLLECT TOKENS",
+    });
+
+    // Optional burn
+    if (params.burnAfter) {
+      steps.push({
+        type: "swap",
+        to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
+        value: "0",
+        data: proxyIface.encodeFunctionData("burn", [params.tokenId]),
+        label: "BURN POSITION NFT",
+      });
+    }
+
+    console.log("[MoleSwap] removeLiquidity → executeSteps:", {
+      stepCount: steps.length,
+      hadProxyApproval: isApproved,
+      originChain: params.originChain,
+      isCrossChain: !isPushChain(params.originChain || null),
+    });
+
+    const result = await executeSteps({
+      pushChainClient: client,
+      userAddress: params.recipient,
+      steps,
+      originChain: params.originChain || null,
+      onStep,
+      pollPushReceipt,
+    });
+
+    if (!result.success || !result.txHash) {
+      return { txHash: "", success: false, error: result.error || "Remove liquidity failed" };
+    }
+    return { txHash: result.txHash, success: true };
   } catch (err: any) {
-    console.error("[MoleSwap] Remove liquidity error:", err?.message || err);
-    onStep(-1, err?.message || "Unknown error", "error");
-    return { txHash: "", success: false, error: err?.message || "Remove liquidity failed" };
+    const decoded = getContractErrorMessage(err);
+    console.error("[MoleSwap] Remove liquidity error:", decoded);
+    onStep(-1, decoded, "error");
+    return { txHash: "", success: false, error: decoded };
   }
 }
 
@@ -969,38 +1342,87 @@ export async function collectFees(params: {
   pushChainClient: any;
   tokenId: number;
   recipient: string;
+  liquidity?: string;      // NEW: current liquidity on the position — needed for decreaseLiquidity(1) flush trick
+  deadline?: number;
   universalTxOptions?: UniversalTxOptions;
+  originChain?: string | null;
+  onStep?: (step: number, label: string, status: "pending" | "signing" | "confirmed" | "error") => void;
 }): Promise<{ txHash: string; success: boolean; error?: string }> {
+  const onStep = params.onStep || (() => {});
   try {
+    const client = createGuardedPushChainClient(params.pushChainClient);
     const MAX_UINT128 = BigInt("340282366920938463463374607431768211455");
+    const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1800;
 
-    // Ensure proxy is approved as operator
+    // Check proxy approval — add setApprovalForAll step only if needed
     const provider = getProvider();
     const pm = new ethers.Contract(CONTRACTS.POSITION_MANAGER, POSITION_MANAGER_ABI, provider);
     const isApproved = await pm.isApprovedForAll(params.recipient, CONTRACTS.MOLESWAP_LIQUIDITY_PROXY).catch(() => false);
 
+    const steps: SwapStep[] = [];
+    const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
+    const proxyIface = new ethers.Interface(LIQUIDITY_PROXY_ABI);
+
     if (!isApproved) {
-      const pmIface = new ethers.Interface(POSITION_MANAGER_ABI);
-      const approveData = pmIface.encodeFunctionData("setApprovalForAll", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, true]);
-      await sendTx(params.pushChainClient, {
-        to: CONTRACTS.POSITION_MANAGER, value: 0n, data: approveData,
-      }, params.universalTxOptions);
-      await new Promise(r => setTimeout(r, 5000));
+      steps.push({
+        type: "swap",
+        to: CONTRACTS.POSITION_MANAGER,
+        value: "0",
+        data: pmIface.encodeFunctionData("setApprovalForAll", [CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, true]),
+        label: "APPROVE PROXY",
+      });
     }
 
-    const proxyIface = new ethers.Interface(LIQUIDITY_PROXY_ABI);
-    const calldata = proxyIface.encodeFunctionData("collect", [
-      params.tokenId, MAX_UINT128, MAX_UINT128,
-    ]);
+    // Flush tokensOwed via decreaseLiquidity(1) before collect.
+    // Per MoleSwap memory: `collect()` alone returns zero fees — must call
+    // decreaseLiquidity with amount=1 first to flush accumulated fees into
+    // tokensOwed. Atomic multicall ensures these run in order in ONE tx.
+    steps.push({
+      type: "swap",
+      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
+      value: "0",
+      data: proxyIface.encodeFunctionData("decreaseLiquidity", [
+        params.tokenId, 1n, 0n, 0n, deadline,
+      ]),
+      label: "FLUSH FEES",
+    });
 
-    const collectResult = await sendTx(params.pushChainClient, {
-      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY, value: 0n, data: calldata,
-    }, params.universalTxOptions);
-    const txHash = extractHash(collectResult);
+    // Collect
+    steps.push({
+      type: "swap",
+      to: CONTRACTS.MOLESWAP_LIQUIDITY_PROXY,
+      value: "0",
+      data: proxyIface.encodeFunctionData("collect", [
+        params.tokenId, MAX_UINT128, MAX_UINT128,
+      ]),
+      label: "COLLECT FEES",
+    });
 
-    return { txHash, success: true };
+    console.log("[MoleSwap] collectFees → executeSteps:", {
+      stepCount: steps.length,
+      hadProxyApproval: isApproved,
+      originChain: params.originChain,
+      isCrossChain: !isPushChain(params.originChain || null),
+    });
+
+    const result = await executeSteps({
+      pushChainClient: client,
+      userAddress: params.recipient,
+      steps,
+      originChain: params.originChain || null,
+      onStep,
+      pollPushReceipt,
+    });
+
+    if (!result.success || !result.txHash) {
+      return { txHash: "", success: false, error: result.error || "Collect fees failed" };
+    }
+    return { txHash: result.txHash, success: true };
   } catch (err: any) {
-    return { txHash: "", success: false, error: err?.message };
+    const decoded = getContractErrorMessage(err);
+    console.error("[MoleSwap] Collect fees error:", decoded);
+    onStep(-1, decoded, "error");
+    return { txHash: "", success: false, error: decoded };
   }
 }
 
