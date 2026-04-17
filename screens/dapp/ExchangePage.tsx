@@ -51,6 +51,13 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   const [pushEstimate, setPushEstimate] = useState<{ etaSeconds: number; totalGas: number; txCount: number; breakdown: string[] } | null>(null);
   const [fromTokenBalance, setFromTokenBalance] = useState<string | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
+  // Origin-chain balance for cross-chain users: e.g. Phantom user's actual
+  // SOL on Solana Devnet (shown alongside pSOL balance so they understand
+  // what gets bridged in when they swap).
+  const [originBalance, setOriginBalance] = useState<string | null>(null);
+  // For Solana origins, whether Phantom is actually on Devnet. When false,
+  // any bridge attempt fails with "Me: Unexpected error" from Phantom.
+  const [phantomClusterWarning, setPhantomClusterWarning] = useState<string | null>(null);
   const [recipientAddress, setRecipientAddress] = useState<string | null>(null);
   const [isEditingRecipient, setIsEditingRecipient] = useState(false);
   // Store balances for tokens in the selection modal: key = "chainId-tokenAddress"
@@ -149,6 +156,14 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     const checkWalletConnection = async () => {
       if (typeof window === "undefined") return;
 
+      // Guard: only accept 0x-prefixed 42-char EVM addresses.
+      // Phantom (and some other multi-chain wallets) inject window.ethereum
+      // but return their Solana pubkey from eth_accounts when that's the
+      // active account. Writing that pubkey into walletAddress leaks it into
+      // eth_getBalance calls and breaks the Push Chain RPC.
+      const isEvmAddress = (s: unknown): s is string =>
+        typeof s === "string" && /^0x[0-9a-fA-F]{40}$/.test(s);
+
       // Check MetaMask / injected provider
       const eth = window.ethereum;
       if (eth?.request) {
@@ -156,11 +171,15 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
           const accounts: string[] = await eth.request({
             method: "eth_accounts",
           });
-          if (accounts?.[0]) {
-            setWalletAddress(accounts[0]);
-            setRecipientAddress(accounts[0]); // Initialize recipient to wallet address
+          const first = accounts?.[0];
+          if (isEvmAddress(first)) {
+            setWalletAddress(first);
+            setRecipientAddress(first); // Initialize recipient to wallet address
             setShowReceive(true);
           }
+          // else: probably Phantom returning Solana pubkey — ignore, let
+          // the push-wallet provider (usePushWallet) set walletAddress to
+          // the correct UEA once resolved.
         } catch (e) {
           // Silently fail if wallet is not connected
         }
@@ -169,16 +188,18 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       // Listen for account changes
       if (eth?.on) {
         const onAccountsChanged = (accounts: string[]) => {
-          if (accounts?.[0]) {
-            setWalletAddress(accounts[0]);
-            setRecipientAddress(accounts[0]); // Update recipient when wallet changes
+          const first = accounts?.[0];
+          if (isEvmAddress(first)) {
+            setWalletAddress(first);
+            setRecipientAddress(first); // Update recipient when wallet changes
             setShowReceive(true);
-          } else {
+          } else if (!first) {
             setWalletAddress(null);
             setRecipientAddress(null);
             setShowReceive(false);
             setFromTokenBalance(null);
           }
+          // else: non-EVM address (e.g. Solana pubkey from Phantom) — ignore
         };
         eth.on("accountsChanged", onAccountsChanged);
 
@@ -200,13 +221,18 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
         );
         const provider = await getWalletConnectProvider();
         if (provider) {
+          // Same hex guard as the window.ethereum path — reject non-EVM addresses.
+          const isEvmAddr = (s: unknown): s is string =>
+            typeof s === "string" && /^0x[0-9a-fA-F]{40}$/.test(s);
+
           // Listen for account changes from WalletConnect
           provider.on("accountsChanged", (accounts: string[]) => {
-            if (accounts?.[0]) {
-              setWalletAddress(accounts[0]);
-              setRecipientAddress(accounts[0]);
+            const first = accounts?.[0];
+            if (isEvmAddr(first)) {
+              setWalletAddress(first);
+              setRecipientAddress(first);
               setShowReceive(true);
-            } else {
+            } else if (!first) {
               setWalletAddress(null);
               setRecipientAddress(null);
               setShowReceive(false);
@@ -228,9 +254,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
           });
 
           // Check if already connected via WalletConnect
-          if (provider.accounts && provider.accounts.length > 0) {
-            setWalletAddress(provider.accounts[0]);
-            setRecipientAddress(provider.accounts[0]);
+          const wcFirst = provider.accounts?.[0];
+          if (isEvmAddr(wcFirst)) {
+            setWalletAddress(wcFirst);
+            setRecipientAddress(wcFirst);
             setShowReceive(true);
           }
         }
@@ -261,9 +288,11 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   useEffect(() => {
     const handleWalletConnected = (event: Event) => {
       const customEvent = event as CustomEvent<{ address: string }>;
-      if (customEvent.detail?.address) {
-        setWalletAddress(customEvent.detail.address);
-        setRecipientAddress(customEvent.detail.address);
+      const addr = customEvent.detail?.address;
+      // Same hex guard — reject non-EVM addresses that would break Push RPC calls
+      if (addr && /^0x[0-9a-fA-F]{40}$/.test(addr)) {
+        setWalletAddress(addr);
+        setRecipientAddress(addr);
         setShowReceive(true);
       }
     };
@@ -891,6 +920,122 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       cancelled = true;
     };
   }, [walletAddress, fromChainId, fromToken, fromTokenMeta?.decimals, chains]);
+
+  // ═══ ORIGIN-CHAIN BALANCE + PHANTOM DEVNET CHECK ═══════════════════════
+  // When user is on a non-Push origin chain AND selects a bridgeable token
+  // whose origin matches, fetch their actual origin-chain balance so the UI
+  // can show "You have 0.93 SOL on Solana to bridge" — much clearer than
+  // "Balance: 0 pSOL" (which is true but useless for a user about to bridge).
+  //
+  // Also detects Phantom cluster mismatch: if origin is Solana Devnet but
+  // Phantom is on Mainnet, warn before the user burns a signing attempt.
+  useEffect(() => {
+    let cancelled = false;
+
+    const fetchOriginContext = async () => {
+      if (!pushWallet.isConnected || !pushWallet.origin || !pushWallet.originChain || !fromToken) {
+        if (!cancelled) {
+          setOriginBalance(null);
+          setPhantomClusterWarning(null);
+        }
+        return;
+      }
+
+      try {
+        // Dynamic import to avoid bundling the bridge map in pages that don't need it
+        const { getBridgeInfoForPrc20 } = await import("@/lib/pushchain/prc20-bridge-map");
+        const bridge = getBridgeInfoForPrc20(fromToken);
+        if (!bridge) {
+          if (!cancelled) {
+            setOriginBalance(null);
+            setPhantomClusterWarning(null);
+          }
+          return;
+        }
+
+        const originMatches =
+          bridge.originChain.toLowerCase() === pushWallet.originChain!.toLowerCase();
+        if (!originMatches) {
+          if (!cancelled) {
+            setOriginBalance(null);
+            setPhantomClusterWarning(null);
+          }
+          return;
+        }
+
+        // ─ Solana origin path ─
+        if (bridge.originChain.startsWith("solana:")) {
+          // Check Phantom cluster. Phantom injects window.solana; `isConnected`
+          // is true and `publicKey` matches pushWallet.origin. We check cluster
+          // by querying the RPC Phantom is currently using.
+          try {
+            const solWin = (window as any)?.solana;
+            if (solWin?.isPhantom) {
+              // Phantom's injected provider doesn't expose cluster directly,
+              // but we can probe: try to fetch a devnet-only program account.
+              // Simpler: just hit devnet RPC ourselves for the balance. If the
+              // user's pubkey resolves with a nonzero balance on devnet, they
+              // likely have it there. If it's zero but they claim to have SOL,
+              // they're probably on mainnet.
+              const res = await fetch("https://api.devnet.solana.com", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "getBalance",
+                  params: [pushWallet.origin],
+                }),
+              });
+              const json = await res.json();
+              const lamports: number | undefined = json?.result?.value;
+              if (typeof lamports === "number") {
+                const sol = lamports / 1e9;
+                if (!cancelled) {
+                  setOriginBalance(sol.toFixed(6));
+                  // If devnet balance is 0, the user might be on mainnet.
+                  // Not a hard error — they may just not have bridged yet —
+                  // but surface a gentle warning.
+                  setPhantomClusterWarning(
+                    sol === 0
+                      ? "⚠️ 0 SOL detected on Solana Devnet. If Phantom shows a balance, make sure Testnet Mode is ON in Phantom Settings → Developer Settings."
+                      : null
+                  );
+                }
+                return;
+              }
+            }
+          } catch (err) {
+            // Swallow — origin balance display is best-effort
+            console.warn("[MoleSwap] Origin balance fetch failed:", err);
+          }
+
+          if (!cancelled) {
+            setOriginBalance(null);
+            setPhantomClusterWarning(null);
+          }
+          return;
+        }
+
+        // ─ EVM origin path ─ (Sepolia / Arbitrum / Base / BNB)
+        // For EVM origins we'd need to query the corresponding testnet RPC.
+        // Skipped for now — EVM wallets typically show their own balance next
+        // to the Connect button so the user already knows.
+        if (!cancelled) {
+          setOriginBalance(null);
+          setPhantomClusterWarning(null);
+        }
+      } catch (err) {
+        console.warn("[MoleSwap] fetchOriginContext error:", err);
+      }
+    };
+
+    fetchOriginContext();
+    return () => {
+      cancelled = true;
+    };
+  }, [pushWallet.isConnected, pushWallet.origin, pushWallet.originChain, fromToken]);
+
 
   // ----- Modal select logic -----
   // open modal: seed selectedNetwork with the chain group containing the current token
@@ -1659,10 +1804,25 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                                     (${Number(balanceUsdValue).toFixed(2)})
                                   </span>
                                 )}
+                                {/* Origin-chain balance: "+ 0.93 SOL on Solana" */}
+                                {originBalance && Number(originBalance) > 0 && (
+                                  <span className="text-[#7DD3FC]">
+                                    {" "}
+                                    (+ {Number(originBalance).toLocaleString(undefined, { maximumFractionDigits: 6 })} available to bridge)
+                                  </span>
+                                )}
                               </p>
                             ) : (
                               <p className="font-family-ThaleahFat text-sm tracking-widest text-[#8B8B8B] uppercase">
-                                Unable to load balance
+                                {originBalance && Number(originBalance) > 0
+                                  ? `Balance: 0 ${fromTokenMeta?.symbol || ""} (+ ${Number(originBalance).toLocaleString(undefined, { maximumFractionDigits: 6 })} available to bridge)`
+                                  : "Unable to load balance"}
+                              </p>
+                            )}
+                            {/* Phantom cluster warning */}
+                            {phantomClusterWarning && (
+                              <p className="font-family-ThaleahFat mt-1 text-xs tracking-wide text-yellow-400">
+                                {phantomClusterWarning}
                               </p>
                             )}
                           </div>

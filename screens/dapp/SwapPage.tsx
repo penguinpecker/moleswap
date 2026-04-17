@@ -161,6 +161,60 @@ export const SwapPage = ({
     setCurrentStep(null);
 
     try {
+      // ═══ PRE-FLIGHT: Phantom cluster check ═══════════════════════════
+      // If origin is Solana Devnet AND fromToken is bridgeable from Solana,
+      // the SDK will try to sign a Solana tx against Push Chain's gateway
+      // program at `solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1` (Devnet).
+      // If Phantom is connected to Mainnet instead, the signing throws
+      // "Me: Unexpected error" — a cryptic Phantom error that obscures
+      // the real issue. Check the user's Devnet balance first: if it's 0
+      // but they claim to have SOL, they're on the wrong cluster.
+      const originChain =
+        (pushWallet as any)?.originChain ||
+        (pushWallet as any)?.universalAccount?.chain ||
+        null;
+      const isSolanaOrigin =
+        typeof originChain === "string" &&
+        originChain.toLowerCase().startsWith("solana:");
+      const origin = (pushWallet as any)?.origin || null;
+
+      if (isSolanaOrigin && origin) {
+        try {
+          const { canAutoBridgeFrom } = await import("@/lib/pushchain/prc20-bridge-map");
+          if (canAutoBridgeFrom(swapData.fromToken, originChain)) {
+            // Query Devnet RPC directly for user's SOL balance
+            const res = await fetch("https://api.devnet.solana.com", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "getBalance",
+                params: [origin],
+              }),
+            });
+            const json = await res.json();
+            const lamports: number | undefined = json?.result?.value;
+            if (typeof lamports === "number" && lamports === 0) {
+              throw new Error(
+                "Your Solana Devnet balance is 0. If Phantom shows a SOL balance, " +
+                  "it's on Mainnet — Push Chain's bridge only works with Devnet. " +
+                  "Open Phantom → Settings → Developer Settings → enable Testnet Mode, " +
+                  "then switch the network to Solana Devnet. Get free Devnet SOL from " +
+                  "https://faucet.solana.com/"
+              );
+            }
+          }
+        } catch (preflightErr: any) {
+          if (preflightErr?.message?.includes("Devnet")) {
+            // Our own thrown error — surface it to the user
+            throw preflightErr;
+          }
+          // Network probe failed — don't block, just warn and continue
+          console.warn("[MoleSwap] Devnet balance probe failed (non-fatal):", preflightErr);
+        }
+      }
+
       // Get expected chain ID from the quote
       const expectedChainId = swapData.fromChain?.id
         ? Number(swapData.fromChain.id)
