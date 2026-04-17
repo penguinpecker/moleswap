@@ -65,113 +65,29 @@ async function sendUniversalTx(
   return pushChainClient.universal.sendTransaction(txParams);
 }
 
-// ═══ HELPER: Detect if a wallet origin is EVM-compatible ═══
-// Solana-origin universal accounts (Phantom) must skip direct EVM signing —
-// Phantom injects window.ethereum but cannot sign for chain 0xa475.
-function isEvmOrigin(originChain?: string | null): boolean {
-  if (!originChain) return true; // Unknown → try EVM (backwards compat)
-  const c = originChain.toLowerCase();
-  if (c.startsWith("solana:") || c.startsWith("solana") || c.includes("svm")) return false;
-  if (c.startsWith("eip155:") || c.startsWith("evm")) return true;
-  return true;
-}
-
-// Module-level origin chain hint. Callers of executeSwap/addLiquidity/etc. set
-// this via setWalletOriginChain() before invoking, so sendTx can decide whether
-// to attempt direct EVM signing or go straight to universal TX.
+// Kept for backwards-compat with callers in SwapPage.tsx — no-op under the
+// new send path but preserved so deployments don't break on missing symbol.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 let _walletOriginChain: string | null = null;
 export function setWalletOriginChain(origin: string | null | undefined): void {
   _walletOriginChain = origin || null;
 }
 
-// ═══ HELPER: Send EVM tx preferring direct signing over Universal TX ═══
-// Direct EVM signing keeps msg.sender = user, which is required for
-// approve/transferFrom and WETH deposit/withdraw. Universal TX routes
-// through a Cosmos executor where msg.sender ≠ user.
-// Strategy: EVM-origin wallets try direct EVM first, fall back to universal TX.
-// Solana-origin wallets (Phantom) skip direct EVM entirely — Phantom injects
-// window.ethereum but cannot sign for PushChain's chain 0xa475.
+// ═══ HELPER: Send tx — always via PushChain SDK universal.sendTransaction ═══
+// 1:1 match with RamenFi's pattern. We never touch window.ethereum, never
+// BrowserProvider, never wallet_switchEthereumChain. The SDK already knows
+// which signer the user connected (MetaMask, Phantom, email, etc.) and routes
+// the signature request correctly. Any direct-EVM fallback we add here will
+// race with the SDK and grab the wrong wallet (bug: MetaMask popped for a
+// Phantom-connected user).
 async function sendTx(
   pushChainClient: any,
   tx: { to: string; value: bigint; data?: string },
   options?: UniversalTxOptions,
 ): Promise<any> {
-  const canUseDirectEvm = isEvmOrigin(_walletOriginChain);
-
-  // Phantom injects window.ethereum (with isPhantom=true) but can't sign for 0xa475.
-  // Detect and skip even if originChain hint wasn't passed.
-  const injectedEth: any = typeof window !== "undefined" ? (window as any).ethereum : undefined;
-  const isPhantomOnly = injectedEth?.isPhantom && !injectedEth?.isMetaMask && !injectedEth?.isRabby && !injectedEth?.isZerion;
-
-  if (!canUseDirectEvm || isPhantomOnly) {
-    console.log("[MoleSwap] Non-EVM origin detected (origin:", _walletOriginChain, "phantom:", isPhantomOnly, ") — using Universal TX directly");
-    if (tx.value > 0n) {
-      console.warn("[MoleSwap] Native-value tx from non-EVM wallet — relying on universal executor to forward value.");
-    }
-    return sendUniversalTx(pushChainClient, tx, options);
+  if (!pushChainClient) {
+    throw new Error("PushChain client not initialized. Please reconnect your wallet.");
   }
-
-  // ── Attempt 1: Direct EVM via injected wallet (MetaMask etc.) ──
-  if (typeof window !== "undefined" && (window as any).ethereum) {
-    try {
-      const eth = (window as any).ethereum;
-      const currentChainHex: string = await eth.request({ method: "eth_chainId" });
-      if (currentChainHex.toLowerCase() !== "0xa475") {
-        try {
-          await eth.request({
-            method: "wallet_switchEthereumChain",
-            params: [{ chainId: "0xa475" }],
-          });
-        } catch (switchErr: any) {
-          if (switchErr.code === 4902) {
-            await eth.request({
-              method: "wallet_addEthereumChain",
-              params: [{
-                chainId: "0xa475",
-                chainName: "Push Chain Donut Testnet",
-                nativeCurrency: { name: "Push Chain", symbol: "PC", decimals: 18 },
-                rpcUrls: ["https://evm.donut.rpc.push.org/"],
-                blockExplorerUrls: ["https://donut.push.network/"],
-              }],
-            });
-          } else {
-            // Can't switch chain — fall through to universal TX instead of hard-blocking
-            console.warn("[MoleSwap] Chain switch rejected, will try universal TX");
-          }
-        }
-      }
-      // Re-check chain after switch attempt
-      const verifyChain: string = await eth.request({ method: "eth_chainId" }).catch(() => "0x0");
-      if (verifyChain.toLowerCase() === "0xa475") {
-        const provider = new ethers.BrowserProvider(eth);
-        const signer = await provider.getSigner();
-        const gasPriceHex: string = await eth.request({ method: "eth_gasPrice" });
-        const gasPrice = BigInt(gasPriceHex);
-        console.log("[MoleSwap] Using direct EVM signing (msg.sender = user)");
-        const sent = await signer.sendTransaction({
-          to: tx.to,
-          value: tx.value,
-          data: tx.data || "0x",
-          type: 0,
-          gasPrice,
-        });
-        const receipt = await sent.wait();
-        return receipt?.hash || sent.hash;
-      }
-    } catch (e: any) {
-      console.warn("[MoleSwap] Direct EVM signing failed:", e?.code, e?.shortMessage || e?.message);
-      if (e?.code === "ACTION_REJECTED" || e?.code === 4001) {
-        throw new Error("Transaction rejected in wallet.");
-      }
-      // Don't hard-block — fall through to universal TX
-    }
-  }
-
-  // ── Attempt 2: Universal TX (works from any chain wallet) ──
-  if (tx.value > 0n) {
-    console.warn("[MoleSwap] Attempting native-value tx via Universal TX — this may fail if executor can't forward value.");
-  }
-  console.log("[MoleSwap] Using Universal TX (Cosmos-wrapped EVM)");
   return sendUniversalTx(pushChainClient, tx, options);
 }
 
@@ -698,7 +614,11 @@ export async function executeSwap(params: {
   }
 }
 
-// ═══ TOKEN APPROVAL ═══
+// ═══ TOKEN APPROVAL (LEGACY) ═══
+// Standalone helper that uses direct injected-EVM signing. NOT called by
+// executeSwap (which handles approval via sendTx → universal.sendTransaction).
+// Kept for backwards-compat with any external callers. Do NOT use this from
+// UI components — it will pop MetaMask for Phantom-connected users.
 export async function approveToken(
   tokenAddress: string,
   amountWei: string,
