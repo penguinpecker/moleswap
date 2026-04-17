@@ -11,11 +11,18 @@ import {
   getTokenByAddress, findPool, getSwappableTokens,
   type TokenInfo, type PoolInfo,
 } from "./contracts";
+import {
+  getBridgeInfoForPrc20,
+  canAutoBridgeFrom,
+  getSdkMoveableToken,
+  type Prc20BridgeInfo,
+} from "./prc20-bridge-map";
 
 export {
   CONTRACTS, TOKENS, POOLS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
   getTokenByAddress, findPool, getSwappableTokens,
-  type TokenInfo, type PoolInfo,
+  getBridgeInfoForPrc20, canAutoBridgeFrom,
+  type TokenInfo, type PoolInfo, type Prc20BridgeInfo,
 };
 
 export const AMM_ROUTER = CONTRACTS.SWAP_ROUTER;
@@ -864,11 +871,79 @@ export async function executeSwap(params: {
       "function approve(address,uint256) returns (bool)",
     ]);
 
+    // ═══ AUTO-BRIDGE DETECTION ═══════════════════════════════════════════
+    // If the user's origin chain matches the fromToken's bridge origin AND
+    // the fromToken is a bridgeable PRC-20, we can atomically bridge the
+    // origin asset AS PART of the swap. This is how RamenFi achieves the
+    // "connect Phantom, swap SOL directly without pre-bridging" UX.
+    //
+    // Example: user on Phantom (origin=Solana) selects pSOL as fromToken.
+    //   pSOL's bridge origin = Solana → matches → inject bridge step.
+    //   The SDK lock-on-Solana + mint-on-Push + swap all happen in 1 sig.
+    //
+    // Example: user on MetaMask-Sepolia selects pSOL as fromToken.
+    //   pSOL's bridge origin = Solana, user's origin = Sepolia → no match.
+    //   User must already hold pSOL on Push Chain; we do direct swap.
+    //
+    // When a bridge step is prepended, the swap steps' amountIn is tricky
+    // because the bridged amount may differ from what the user entered
+    // (gas is subtracted on arrival). For this version we use the user's
+    // stated amountIn as the swap input; if it over-swaps, the FeeRouter
+    // will revert with STF and the user retries with a lower amount.
+    const bridgeInfo = params.originChain
+      ? (() => {
+          const info = getBridgeInfoForPrc20(params.tokenIn);
+          if (!info) return null;
+          if (info.originChain.toLowerCase() !== params.originChain.toLowerCase()) return null;
+          return info;
+        })()
+      : null;
+
+    let bridgeSdkToken: any = null;
+    if (bridgeInfo) {
+      // Try to access PushChain.CONSTANTS.MOVEABLE.TOKEN from the client
+      // instance (it's a static property on the SDK's PushChain class).
+      try {
+        // pushChainClient is an instance; its constructor exposes CONSTANTS
+        const ctorConstants = (params.pushChainClient as any)?.constructor?.CONSTANTS
+          || (params.pushChainClient as any)?.CONSTANTS;
+        const moveable = ctorConstants?.MOVEABLE?.TOKEN;
+        if (moveable) {
+          bridgeSdkToken = getSdkMoveableToken(params.tokenIn, moveable);
+        }
+      } catch (err) {
+        console.warn("[MoleSwap] Could not access MOVEABLE.TOKEN constants:", err);
+      }
+    }
+
+    if (bridgeInfo && bridgeSdkToken) {
+      // The user will pay the bridge amount in their origin asset (SOL, ETH,
+      // USDT, etc.) — `amountIn` here is expressed in the PRC-20 decimals,
+      // but since Push Chain's Universal Gateway mints 1:1, the same
+      // numeric amount works for the bridge. (If origin decimals differ
+      // from PRC-20 decimals the SDK handles the conversion.)
+      steps.push({
+        type: "bridge",
+        amount: amountIn.toString(),
+        token: bridgeSdkToken,
+      });
+      console.log("[MoleSwap] Auto-bridging", {
+        fromToken: params.tokenIn,
+        originSymbol: bridgeInfo.originSymbol,
+        originChain: bridgeInfo.originChain,
+        amount: amountIn.toString(),
+      });
+    }
+
     // If native PC in, we must wrap first. Include the wrap call in the multicall.
     // The wrap is `wpc.deposit() payable` with value = amountIn. Inside a
     // multicall the native value is taken from the caller (UEA), which the SDK
     // ensures has enough balance from the `funds` transfer.
-    if (isNativeIn) {
+    // NOTE: Skip wrap if we have a bridge step that brings in native PC
+    // equivalent (handled by SDK; the gateway mints WPC directly when the
+    // origin is Push Chain itself, but since that case is sequential anyway
+    // the wrap stays).
+    if (isNativeIn && !bridgeInfo) {
       const wpcIface = new ethers.Interface(["function deposit() payable"]);
       steps.push({
         type: "swap",
