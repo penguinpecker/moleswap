@@ -17,10 +17,33 @@ export function usePushWallet() {
   const { pushChainClient } = usePushChainClient();
 
   const isConnected = walletCtx?.connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
-  const address = walletCtx?.universalAccount?.address || pushChainClient?.universal?.account || null;
+
+  // CRITICAL: For Solana-origin wallets (Phantom), `universalAccount.address`
+  // is the Solana pubkey — useless for EVM operations on PushChain. The UEA
+  // (`pushChainClient.universal.account`) is the EVM address on PushChain that
+  // actually holds balances and is addressable by contracts. Always prefer the
+  // UEA for on-chain operations, fall back to universalAccount only when the
+  // UEA isn't ready yet AND the origin is EVM (address is already EVM-compatible).
+  const uea: string | null =
+    (pushChainClient as any)?.universal?.account || null;
+  const origin: string | null =
+    walletCtx?.universalAccount?.address ||
+    (pushChainClient as any)?.universal?.origin ||
+    null;
+  const originChainRaw: string | null =
+    walletCtx?.universalAccount?.chain || null;
+  const isEvmOrigin = !originChainRaw ||
+    originChainRaw.toLowerCase().startsWith("eip155");
+
+  // `address` is what gets used for on-chain reads (balance, allowance) and as
+  // `recipient` in swap txs. It MUST be the UEA for Solana users. For EVM users
+  // the UEA equals their EOA once resolved, so either works.
+  const address = uea || (isEvmOrigin ? origin : null);
 
   return {
-    address,
+    address,           // UEA — use this for on-chain operations
+    uea,               // UEA explicit (may be null before first tx)
+    origin,            // origin wallet address (Solana pubkey for Phantom)
     isConnected,
     isConnecting:
       walletCtx?.connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTING ||
@@ -28,7 +51,7 @@ export function usePushWallet() {
     connectionStatus: walletCtx?.connectionStatus,
     pushChainClient,
     universalAccount: walletCtx?.universalAccount,
-    originChain: walletCtx?.universalAccount?.chain || null,
+    originChain: originChainRaw,
     connect: () => walletCtx?.handleConnectToPushWallet?.(),
     disconnect: () => walletCtx?.handleUserLogOutEvent?.(),
   };
