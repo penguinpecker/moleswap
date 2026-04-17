@@ -36,9 +36,23 @@ export function usePushWallet() {
     originChainRaw.toLowerCase().startsWith("eip155");
 
   // `address` is what gets used for on-chain reads (balance, allowance) and as
-  // `recipient` in swap txs. It MUST be the UEA for Solana users. For EVM users
-  // the UEA equals their EOA once resolved, so either works.
-  const address = uea || (isEvmOrigin ? origin : null);
+  // `recipient` in swap txs. It MUST be a valid EVM hex address. If we have the
+  // UEA, use it — always valid. Otherwise fall back to origin ONLY if origin is
+  // itself an EVM hex address (0x...). A Solana pubkey (base58) is NEVER a
+  // valid EVM address, so we return null rather than letting it leak into
+  // eth_getBalance calls which will reject it.
+  //
+  // Without this guard: during the brief window between wallet connect and UEA
+  // resolution, the Phantom/Solana pubkey would slip through via the
+  // isEvmOrigin fallback (because originChainRaw is momentarily null), and
+  // balance-fetch effects would POST the Solana pubkey to eth_getBalance,
+  // producing the "invalid argument 0: json: cannot unmarshal hex string
+  // without 0x prefix" RPC error seen in prod logs.
+  const looksLikeEvmHex = (s: string | null): boolean =>
+    !!s && s.startsWith("0x") && s.length === 42;
+  const address =
+    uea ||
+    (isEvmOrigin && looksLikeEvmHex(origin) ? origin : null);
 
   return {
     address,           // UEA — use this for on-chain operations

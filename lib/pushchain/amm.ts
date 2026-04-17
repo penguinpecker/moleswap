@@ -185,11 +185,32 @@ export async function executeSteps(
   // RamenFi: let i = !s || !(0, nC.isPushChain)(s)
   const isCrossChain = !originChain || !isPushChain(originChain);
 
+  // SOLANA-ORIGIN MULTICALL FIX
+  // ──────────────────────────────────────────────────────────────────────
+  // Push's SDK encodes universal txs for Solana origins into an Anchor
+  // program instruction. That instruction has to fit inside one Solana
+  // transaction (1232-byte hard limit). A 3-call multicall (wrap + approve
+  // + swap) with ABI-encoded calldata routinely blows past this limit,
+  // producing: "RangeError: encoding overruns Buffer" at rZ.instruction.
+  //
+  // RamenFi avoids this by using their proprietary depositPRC20WithAutoSwap
+  // contract (selector 0x780ad827) — a SINGLE on-chain function that does
+  // wrap+approve+swap atomically. Their multicall therefore only contains
+  // one call, which fits in the Solana tx buffer.
+  //
+  // Until MoleSwap deploys a similar helper contract, we fall back to
+  // sequential sends for Solana origins. This means Phantom users pay N
+  // sigs (was the pre-multicall behavior) but the swap actually works.
+  // For EVM cross-chain origins (MM-Sepolia, MM-Arbitrum, etc.) we keep
+  // the multicall path — their tx-size limits are much larger.
+  const isSolanaOrigin = !!originChain && originChain.toLowerCase().startsWith("solana:");
+  const useMulticall = isCrossChain && !isSolanaOrigin;
+
   try {
     let finalTxHash: string | null = null;
 
-    if (isCrossChain) {
-      // ─── CROSS-CHAIN PATH (Phantom, MM-Sepolia, etc.) — MULTICALL ─────
+    if (useMulticall) {
+      // ─── CROSS-CHAIN PATH (non-Solana) — MULTICALL ─────
       // RamenFi: let s = n[0], i = n.filter(sC), a = "bridge"===s.type?s:null
       const firstStep = steps[0];
       const swapSteps = steps.filter(isSwapStep) as SwapStepCall[];
@@ -254,10 +275,38 @@ export async function executeSteps(
         if (pollReceipt) await pollReceipt(finalTxHash);
       }
     } else {
-      // ─── PUSH-NATIVE PATH — SEQUENTIAL (one sig per step) ─────────────
-      // RamenFi: for(let r of n){if(!sC(r))continue;...}
-      // Bridge steps are skipped on Push-native because there's nothing to
-      // bridge — the user already holds the tokens on Push Chain.
+      // ─── SEQUENTIAL PATH — one sig per step ───────────────────────────
+      // Used for:
+      //   • Push-native origins (SDK limit: no batch-inbound for native EOAs)
+      //   • Solana origins (tx-size limit prevents multi-call encoding)
+      //
+      // RamenFi for push-native: for(let r of n){if(!sC(r))continue;...}
+      //
+      // For Solana origin with a bridge step, we send the bridge FIRST
+      // (as a funds transfer to the UEA), then execute each swap step
+      // individually. This produces N sigs but each one fits inside
+      // Solana's 1232-byte tx buffer.
+      //
+      // For Push-native: bridge steps are skipped (user already has tokens
+      // on Push Chain; nothing to bridge).
+      const firstStep = steps[0];
+      const bridgeStep: BridgeStep | null =
+        firstStep?.type === "bridge" ? (firstStep as BridgeStep) : null;
+
+      // Send bridge step first (Solana origin only — push-native skips)
+      if (bridgeStep && isSolanaOrigin) {
+        onStep(0, "Bridge funds", "signing");
+        const funds = { amount: BigInt(bridgeStep.amount), token: bridgeStep.token };
+        const tx = await pushChainClient.universal.sendTransaction({
+          to: userAddress,
+          funds,
+        });
+        finalTxHash = extractTxHash(tx);
+        onStep(0, "Bridge funds", "confirmed");
+        if (pollReceipt) await pollReceipt(finalTxHash);
+      }
+
+      // Then loop swap steps sequentially
       for (let i = 0; i < steps.length; i++) {
         const step = steps[i];
         if (!isSwapStep(step)) continue;
