@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowLeft, Fuel } from "lucide-react";
 import { DappStep } from ".";
 import Image from "next/image";
@@ -17,6 +17,16 @@ const extractHash = (result: any): string => {
   if (result.tx?.hash) return result.tx.hash;
   if (result.receipt?.transactionHash) return result.receipt.transactionHash;
   return "";
+};
+
+/**
+ * Prefer the real-asset display symbol (e.g. "ETH", "SOL", "USDT") surfaced
+ * through RelayCurrency.displaySymbol over the internal `pETH`/`USDT.eth`
+ * style identifiers. Fallback chain mirrors ExchangePage.displaySymbolOf.
+ */
+const displaySymbolOf = (t: any, fallback?: string): string => {
+  if (!t) return fallback || "";
+  return t.displaySymbol || t.symbol || fallback || "";
 };
 
 interface SwapPageProps {
@@ -58,6 +68,65 @@ export const SwapPage = ({
   const [approving, setApproving] = useState(false);
   const [approvalHash, setApprovalHash] = useState<string | null>(null);
   const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
+
+  // ═══ BRIDGE-OUT DETECTION ═══════════════════════════════════════════════
+  // When a user swaps INTO a bridgeable PRC-20 AND their connected wallet's
+  // origin chain is the same chain the PRC-20 maps to, we auto-append a
+  // Route-2 bridge-out step to deliver the real asset to the user's external
+  // wallet (e.g. swap USDT.eth → pSOL on Push, and if you're on Phantom, the
+  // pSOL gets auto-bridged to real SOL on Solana Devnet in the same flow).
+  //
+  // bridgeOutEligible is true when:
+  //   - toToken is in the PRC20_BRIDGE_MAP (has an SDK bridge mapping)
+  //   - user's wallet origin matches the toToken's origin chain
+  // bridgeOutTo is the user's external address on that origin chain.
+  const originChainForHooks =
+    (pushWallet as any)?.originChain ||
+    (pushWallet as any)?.universalAccount?.chain ||
+    null;
+  const originAddressForHooks =
+    (pushWallet as any)?.origin ||
+    (pushWallet as any)?.universalAccount?.owner ||
+    null;
+  const [bridgeOutInfo, setBridgeOutInfo] = useState<{
+    eligible: boolean;
+    uiLabel: string;
+    originSymbol: string;
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!swapData.toToken || !originChainForHooks || !originAddressForHooks) {
+          if (!cancelled) setBridgeOutInfo(null);
+          return;
+        }
+        const { canAutoBridgeFrom, getBridgeInfoForPrc20 } = await import(
+          "@/lib/pushchain/prc20-bridge-map"
+        );
+        if (!canAutoBridgeFrom(swapData.toToken, originChainForHooks)) {
+          if (!cancelled) setBridgeOutInfo(null);
+          return;
+        }
+        const info = getBridgeInfoForPrc20(swapData.toToken);
+        if (info && !cancelled) {
+          setBridgeOutInfo({
+            eligible: true,
+            uiLabel: info.uiLabel,
+            originSymbol: info.originSymbol,
+          });
+        }
+      } catch (err) {
+        console.warn("[MoleSwap] bridge-out eligibility probe failed:", err);
+        if (!cancelled) setBridgeOutInfo(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [swapData.toToken, originChainForHooks, originAddressForHooks]);
+
   // Step list is derived from the quote (which knows the exact route: wrap/no-wrap,
   // approve-or-skip, single-hop vs multi-hop) rather than hardcoded. This ensures
   // we only render steps that actually apply to this swap.
@@ -69,15 +138,25 @@ export const SwapPage = ({
     // the relay flow that isn't part of the actual swap execution).
     const known = ["Wrap PC → WPC", "Unwrap WPC → PC", "Approve token", "Swap tokens", "Swap → WPC", "Approve WPC", "Swap WPC →"];
     const txSteps = quoteSteps.filter(s => typeof s?.label === "string" && known.includes(s.label as string));
-    if (txSteps.length > 0) {
-      return txSteps.map(s => ({ label: s.label as string, status: "pending" as const }));
+    let base = txSteps.length > 0
+      ? txSteps.map(s => ({ label: s.label as string, status: "pending" as const }))
+      // Fallback for when quote.steps is missing — best-guess 2-step default.
+      : [
+          { label: "Approve token", status: "pending" as const },
+          { label: "Swap tokens", status: "pending" as const },
+        ];
+    // Append bridge-out steps when the user will receive the asset on its
+    // native origin chain. Two rows so the user can see the destination-chain
+    // settlement progress distinctly from the swap itself.
+    if (bridgeOutInfo?.eligible) {
+      base = [
+        ...base,
+        { label: `Bridge out to ${bridgeOutInfo.uiLabel}`, status: "pending" as const },
+        { label: `Confirming on ${bridgeOutInfo.uiLabel}`, status: "pending" as const },
+      ];
     }
-    // Fallback for when quote.steps is missing — best-guess 3-step default.
-    return [
-      { label: "Approve token", status: "pending" as const },
-      { label: "Swap tokens", status: "pending" as const },
-    ];
-  }, [swapData.quote]);
+    return base;
+  }, [swapData.quote, bridgeOutInfo]);
 
   const [swapSteps, setSwapSteps] = useState<Array<{ label: string; status: "pending" | "signing" | "confirmed" | "error" }>>(initialSwapSteps);
 
@@ -500,6 +579,11 @@ export const SwapPage = ({
           (pushWallet as any)?.originChain ||
           (pushWallet as any)?.universalAccount?.chain ||
           null,
+        // Auto-deliver the output asset to the user's external wallet when
+        // the toToken is bridgeable and their origin chain matches. This is
+        // the "Phantom SOL → real ETH on Sepolia" one-click UX from the user's
+        // perspective, though under the hood it's two sigs (swap + bridge-out).
+        bridgeOutTo: bridgeOutInfo?.eligible ? originAddressForHooks : null,
         onStep: (_stepIdx, label, status) => {
           // Match emitted label to the step row in the quote-derived list.
           // Label casing from amm.ts is now normalized to match quote.steps.
@@ -612,6 +696,13 @@ export const SwapPage = ({
           txHashes[txHashes.length - 1] ||
           "",
         txHashes: finalTxHashes.length > 0 ? finalTxHashes : txHashes,
+        // Extra metadata for rendering the bridge-out settlement on the
+        // destination chain. Undefined when no bridge-out ran — the TX info
+        // page conditionally shows an "External Tx" row when present.
+        bridgeOutTxHash: swapResult.bridgeOutTxHash,
+        bridgeOutExternalTxHash: swapResult.bridgeOutExternalTxHash,
+        bridgeOutChainLabel: bridgeOutInfo?.uiLabel,
+        bridgeOutOriginSymbol: bridgeOutInfo?.originSymbol,
       });
     } catch (error: any) {
       // eslint-disable-next-line no-console
@@ -692,7 +783,7 @@ export const SwapPage = ({
                       {swapData.amount || "0"}
                     </div>
                     <div className="text-sm font-semibold text-stone-300">
-                      {swapData.fromTokenMeta?.symbol || swapData.fromToken} on{" "}
+                      {displaySymbolOf(swapData.fromTokenMeta, swapData.fromToken)} on{" "}
                       {swapData.fromChain?.displayName ||
                         swapData.fromChain?.name ||
                         "Unknown"}
@@ -747,7 +838,7 @@ export const SwapPage = ({
                   </div>
                   <div className="text-sm font-semibold text-stone-300">
                     {swapData.feesLabel || ""} •{" "}
-                    {swapData.toTokenMeta?.symbol || swapData.toToken} on{" "}
+                    {displaySymbolOf(swapData.toTokenMeta, swapData.toToken)} on{" "}
                     {swapData.toChain?.displayName ||
                       swapData.toChain?.name ||
                       "Unknown"}
@@ -762,7 +853,7 @@ export const SwapPage = ({
             <div className="flex w-full justify-between gap-4 px-4 py-1 max-sm:flex-col sm:items-center">
               <div className="text-sm font-semibold text-stone-300">
                 {swapData.rateLabel ||
-                  `1 ${swapData.fromTokenMeta?.symbol || swapData.fromToken} = ${swapData.expectedOut || "0"} ${swapData.toTokenMeta?.symbol || swapData.toToken}`}
+                  `1 ${displaySymbolOf(swapData.fromTokenMeta, swapData.fromToken)} = ${swapData.expectedOut || "0"} ${displaySymbolOf(swapData.toTokenMeta, swapData.toToken)}`}
               </div>
               <div className="ml-auto text-sm text-yellow-200">
                 <Fuel className="inline-block h-4 w-4" />{" "}

@@ -21,7 +21,13 @@ export const CONTRACTS = {
 // ═══ PRC-20 TOKENS ON PUSH CHAIN ═══
 export interface TokenInfo {
   address: string;
+  /**
+   * Internal canonical identifier (e.g. "pETH", "pSOL", "USDT.bnb").
+   * Used as a lookup key in pool tables and routing logic — DO NOT change
+   * these strings without updating POOLS and ROUTES accordingly.
+   */
   symbol: string;
+  /** Legacy long-form name (e.g. "Ether (Ethereum)"). Kept for backward-compat. */
   name: string;
   decimals: number;
   sourceChain: string;
@@ -41,43 +47,83 @@ export interface TokenInfo {
    * pETH.originSymbol = "ETH".
    */
   originSymbol?: string;
+  // ─── UI DISPLAY (preferred over `symbol`/`name` in all user-facing views) ──
+  /**
+   * Real asset ticker shown in the UI: "ETH", "SOL", "USDT", "PC", "WPC".
+   * Should match the name of the underlying asset on its origin chain —
+   * users should never see "pETH" or "pSOL" anywhere in the UI.
+   */
+  displaySymbol?: string;
+  /**
+   * Subtitle shown under the symbol to disambiguate which chain's ETH/USDT/etc.
+   * this is. Examples: "on Push · Ethereum", "on Push · Solana", "on Push".
+   */
+  displaySubtitle?: string;
+  /**
+   * If true, hide from token pickers, pool listings, and routing results.
+   * Used for legacy/mislabelled tokens (e.g. the token formerly known as
+   * "pBNB", which is actually pETH_BNB in the SDK and has no clear UX story).
+   */
+  hidden?: boolean;
+}
+
+/**
+ * Returns the user-facing display data for a token — falls back to legacy
+ * `symbol`/`name` if the preferred `displaySymbol`/`displaySubtitle` aren't set.
+ * Always use this in components rather than rendering `token.symbol` directly.
+ */
+export function getDisplayInfo(token: TokenInfo): { symbol: string; subtitle: string } {
+  return {
+    symbol: token.displaySymbol ?? token.symbol,
+    subtitle: token.displaySubtitle ?? token.name,
+  };
 }
 
 export const TOKENS: TokenInfo[] = [
   // ─── Push Chain native + wrapped ───────────────────────────────────────
-  { address: "0x0000000000000000000000000000000000000000", symbol: "PC", name: "Push Chain", decimals: 18, sourceChain: "Push Chain", logoURI: "/push-chain-logo.png", swappable: true, originSymbol: "PC" },
-  { address: CONTRACTS.WPC, symbol: "WPC", name: "Wrapped Push Chain", decimals: 18, sourceChain: "Push Chain", logoURI: "/push-chain-logo.png", swappable: true, originSymbol: "PC" },
+  { address: "0x0000000000000000000000000000000000000000", symbol: "PC",  name: "Push Chain",         decimals: 18, sourceChain: "Push Chain", logoURI: "/push-chain-logo.png", swappable: true, originSymbol: "PC", displaySymbol: "PC",  displaySubtitle: "Push Chain native" },
+  { address: CONTRACTS.WPC,                                  symbol: "WPC", name: "Wrapped Push Chain", decimals: 18, sourceChain: "Push Chain", logoURI: "/push-chain-logo.png", swappable: true, originSymbol: "PC", displaySymbol: "WPC", displaySubtitle: "Wrapped Push Chain" },
 
   // ─── Ethereum Sepolia ─────────────────────────────────────────────────
-  // pETH is ETH bridged from Sepolia. USDT.eth is Sepolia USDT bridged in.
+  // Internal symbol `pETH` preserved so existing pool/routing code keeps working.
+  // Users see "ETH" with "on Push · Ethereum" subtitle — the real-asset naming
+  // they asked for. bridgeable=true means a connected Phantom/MetaMask on the
+  // matching origin chain can atomically bridge in during swap, and (new) the
+  // final leg can atomically bridge back out if the destination token matches
+  // that same origin chain.
   // WETH.eth, stETH.eth, USDC.eth: contracts exist but NO SDK bridge mapping
   // (getPRC20Address throws "Unsupported token symbol"). Kept as legacy
   // swappable if a pool exists — users would need to have acquired them
   // through some other mechanism.
-  { address: "0x2971824Db68229D087931155C2b8bB820B275809", symbol: "pETH",     name: "Ether (Ethereum)",  decimals: 18, sourceChain: "Ethereum",  logoURI: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", swappable: true, bridgeable: true,  originSymbol: "ETH"  },
-  { address: "0xCA0C5E6F002A389E1580F0DB7cd06e4549B5F9d3", symbol: "USDT.eth", name: "Tether (Ethereum)", decimals: 6,  sourceChain: "Ethereum",  logoURI: "https://assets.coingecko.com/coins/images/325/small/Tether.png",   swappable: true, bridgeable: true,  originSymbol: "USDT" },
-  { address: "0x387b9C8Db60E74999aAAC5A2b7825b400F12d68E", symbol: "USDC.eth", name: "USD Coin (Ethereum)", decimals: 6, sourceChain: "Ethereum", logoURI: "https://assets.coingecko.com/coins/images/6319/small/usdc.png",     swappable: true, bridgeable: false, originSymbol: "USDC" },
+  { address: "0x2971824Db68229D087931155C2b8bB820B275809", symbol: "pETH",     name: "Ether (Ethereum)",    decimals: 18, sourceChain: "Ethereum",  logoURI: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", swappable: true, bridgeable: true,  originSymbol: "ETH",  displaySymbol: "ETH",  displaySubtitle: "on Push · Ethereum" },
+  { address: "0xCA0C5E6F002A389E1580F0DB7cd06e4549B5F9d3", symbol: "USDT.eth", name: "Tether (Ethereum)",   decimals: 6,  sourceChain: "Ethereum",  logoURI: "https://assets.coingecko.com/coins/images/325/small/Tether.png",   swappable: true, bridgeable: true,  originSymbol: "USDT", displaySymbol: "USDT", displaySubtitle: "on Push · Ethereum" },
+  { address: "0x387b9C8Db60E74999aAAC5A2b7825b400F12d68E", symbol: "USDC.eth", name: "USD Coin (Ethereum)", decimals: 6,  sourceChain: "Ethereum",  logoURI: "https://assets.coingecko.com/coins/images/6319/small/usdc.png",    swappable: true, bridgeable: false, originSymbol: "USDC", displaySymbol: "USDC", displaySubtitle: "on Push · Ethereum" },
 
   // ─── Solana Devnet ────────────────────────────────────────────────────
-  // pSOL is native SOL bridged from Solana. USDT.sol is SPL USDT bridged in.
+  // pSOL displays as "SOL" with subtitle "on Push · Solana". USDT.sol same treatment.
   // USDC.sol contract exists but NO SDK bridge mapping yet.
   // DAI.sol was never supported by Push Chain's Universal Gateway — removed.
-  { address: "0x5D525Df2bD99a6e7ec58b76aF2fd95F39874EBed", symbol: "pSOL",     name: "Solana (Solana)",     decimals: 9, sourceChain: "Solana", logoURI: "https://assets.coingecko.com/coins/images/4128/small/solana.png", swappable: true, bridgeable: true,  originSymbol: "SOL"  },
-  { address: "0x4f1A3D22d170a2F4Bddb37845a962322e24f4e34", symbol: "USDT.sol", name: "Tether (Solana)",     decimals: 6, sourceChain: "Solana", logoURI: "https://assets.coingecko.com/coins/images/325/small/Tether.png",   swappable: true, bridgeable: true,  originSymbol: "USDT" },
+  { address: "0x5D525Df2bD99a6e7ec58b76aF2fd95F39874EBed", symbol: "pSOL",     name: "Solana (Solana)",     decimals: 9, sourceChain: "Solana", logoURI: "https://assets.coingecko.com/coins/images/4128/small/solana.png", swappable: true, bridgeable: true,  originSymbol: "SOL",  displaySymbol: "SOL",  displaySubtitle: "on Push · Solana" },
+  { address: "0x4f1A3D22d170a2F4Bddb37845a962322e24f4e34", symbol: "USDT.sol", name: "Tether (Solana)",     decimals: 6, sourceChain: "Solana", logoURI: "https://assets.coingecko.com/coins/images/325/small/Tether.png",   swappable: true, bridgeable: true,  originSymbol: "USDT", displaySymbol: "USDT", displaySubtitle: "on Push · Solana" },
 
   // ─── Base Sepolia ─────────────────────────────────────────────────────
-  { address: "0xc7007af2B24D4eb963fc9633B0c66e1d2D90Fc21", symbol: "pETH.base", name: "Ether (Base)",      decimals: 18, sourceChain: "Base", logoURI: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", swappable: true, bridgeable: true,  originSymbol: "ETH"  },
-  { address: "0x2C455189D2af6643B924A981a9080CcC63d5a567", symbol: "USDT.base", name: "Tether (Base)",     decimals: 6,  sourceChain: "Base", logoURI: "https://assets.coingecko.com/coins/images/325/small/Tether.png",   swappable: true, bridgeable: true,  originSymbol: "USDT" },
-  { address: "0x84B62e44F667F692F7739Ca6040cD17DA02068A8", symbol: "USDC.base", name: "USD Coin (Base)",   decimals: 6,  sourceChain: "Base", logoURI: "https://assets.coingecko.com/coins/images/6319/small/usdc.png",     swappable: true, bridgeable: false, originSymbol: "USDC" },
+  { address: "0xc7007af2B24D4eb963fc9633B0c66e1d2D90Fc21", symbol: "pETH.base", name: "Ether (Base)",      decimals: 18, sourceChain: "Base", logoURI: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", swappable: true, bridgeable: true,  originSymbol: "ETH",  displaySymbol: "ETH",  displaySubtitle: "on Push · Base" },
+  { address: "0x2C455189D2af6643B924A981a9080CcC63d5a567", symbol: "USDT.base", name: "Tether (Base)",     decimals: 6,  sourceChain: "Base", logoURI: "https://assets.coingecko.com/coins/images/325/small/Tether.png",   swappable: true, bridgeable: true,  originSymbol: "USDT", displaySymbol: "USDT", displaySubtitle: "on Push · Base" },
+  { address: "0x84B62e44F667F692F7739Ca6040cD17DA02068A8", symbol: "USDC.base", name: "USD Coin (Base)",   decimals: 6,  sourceChain: "Base", logoURI: "https://assets.coingecko.com/coins/images/6319/small/usdc.png",     swappable: true, bridgeable: false, originSymbol: "USDC", displaySymbol: "USDC", displaySubtitle: "on Push · Base" },
 
   // ─── Arbitrum Sepolia ─────────────────────────────────────────────────
-  { address: "0xc0a821a1AfEd1322c5e15f1F4586C0B8cE65400e", symbol: "pETH.arb", name: "Ether (Arbitrum)",   decimals: 18, sourceChain: "Arbitrum", logoURI: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", swappable: true, bridgeable: true,  originSymbol: "ETH"  },
-  { address: "0x76Ad08339dF606BeEDe06f90e3FaF82c5b2fb2E9", symbol: "USDT.arb", name: "Tether (Arbitrum)",  decimals: 6,  sourceChain: "Arbitrum", logoURI: "https://assets.coingecko.com/coins/images/325/small/Tether.png",   swappable: true, bridgeable: true,  originSymbol: "USDT" },
-  { address: "0xa261A10e94aE4bA88EE8c5845CbE7266bD679DD6", symbol: "USDC.arb", name: "USD Coin (Arbitrum)", decimals: 6, sourceChain: "Arbitrum", logoURI: "https://assets.coingecko.com/coins/images/6319/small/usdc.png",     swappable: true, bridgeable: false, originSymbol: "USDC" },
+  { address: "0xc0a821a1AfEd1322c5e15f1F4586C0B8cE65400e", symbol: "pETH.arb", name: "Ether (Arbitrum)",   decimals: 18, sourceChain: "Arbitrum", logoURI: "https://assets.coingecko.com/coins/images/279/small/ethereum.png", swappable: true, bridgeable: true,  originSymbol: "ETH",  displaySymbol: "ETH",  displaySubtitle: "on Push · Arbitrum" },
+  { address: "0x76Ad08339dF606BeEDe06f90e3FaF82c5b2fb2E9", symbol: "USDT.arb", name: "Tether (Arbitrum)",  decimals: 6,  sourceChain: "Arbitrum", logoURI: "https://assets.coingecko.com/coins/images/325/small/Tether.png",   swappable: true, bridgeable: true,  originSymbol: "USDT", displaySymbol: "USDT", displaySubtitle: "on Push · Arbitrum" },
+  { address: "0xa261A10e94aE4bA88EE8c5845CbE7266bD679DD6", symbol: "USDC.arb", name: "USD Coin (Arbitrum)", decimals: 6, sourceChain: "Arbitrum", logoURI: "https://assets.coingecko.com/coins/images/6319/small/usdc.png",     swappable: true, bridgeable: false, originSymbol: "USDC", displaySymbol: "USDC", displaySubtitle: "on Push · Arbitrum" },
 
   // ─── BNB Testnet ──────────────────────────────────────────────────────
-  { address: "0x7a9082dA308f3fa005beA7dB0d203b3b86664E36", symbol: "pBNB",     name: "BNB (BNB Chain)",     decimals: 18, sourceChain: "BNB Chain", logoURI: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png", swappable: true, bridgeable: true, originSymbol: "ETH"  },
-  { address: "0x2f98B4235FD2BA0173a2B056D722879360B12E7b", symbol: "USDT.bnb", name: "Tether (BNB Chain)",  decimals: 6,  sourceChain: "BNB Chain", logoURI: "https://assets.coingecko.com/coins/images/325/small/Tether.png",       swappable: true, bridgeable: true, originSymbol: "USDT" },
+  // IMPORTANT: The token at 0x7a9082dA... was previously mislabelled "pBNB" but
+  // per the Push SDK v5.1.2 source (node_modules/@pushchain/core/src/lib/constants/tokens.js:320)
+  // it is actually `pETH_BNB` — ETH bridged from BNB Chain, NOT native BNB.
+  // There is no native-BNB PRC-20 in the SDK. Hidden from swap UI per user decision.
+  // Pool below is kept for on-chain integrity but also flagged hidden.
+  { address: "0x7a9082dA308f3fa005beA7dB0d203b3b86664E36", symbol: "pBNB",     name: "BNB (BNB Chain)",     decimals: 18, sourceChain: "BNB Chain", logoURI: "https://assets.coingecko.com/coins/images/825/small/bnb-icon2_2x.png", swappable: false, bridgeable: false, originSymbol: "ETH",  displaySymbol: "ETH",  displaySubtitle: "on Push · BNB Chain", hidden: true },
+  { address: "0x2f98B4235FD2BA0173a2B056D722879360B12E7b", symbol: "USDT.bnb", name: "Tether (BNB Chain)",  decimals: 6,  sourceChain: "BNB Chain", logoURI: "https://assets.coingecko.com/coins/images/325/small/Tether.png",       swappable: true, bridgeable: true,  originSymbol: "USDT", displaySymbol: "USDT", displaySubtitle: "on Push · BNB Chain" },
 ];
 
 // ═══ LIVE AMM POOLS ═══
@@ -88,6 +134,12 @@ export interface PoolInfo {
   fee: number;
   name: string;
   thinLiquidity?: boolean; // Warn users — pool has very low liquidity, high slippage expected
+  /**
+   * Hide pool from UI surfaces (pool list, pool picker, routing results).
+   * Pool still exists on-chain — this flag only affects display.
+   * Used for the pBNB/WPC pool (mislabelled token; see TOKENS above).
+   */
+  hidden?: boolean;
 }
 
 export const POOLS: PoolInfo[] = [
@@ -100,10 +152,16 @@ export const POOLS: PoolInfo[] = [
   { address: "0x1354c9A72F447f60F4811FC34b8C2e084FE338A3", token0: "0xc0a821a1AfEd1322c5e15f1F4586C0B8cE65400e", token1: CONTRACTS.WPC, fee: 3000, name: "pETH.arb/WPC" },
   { address: "0xF95B20Cf3f2dE495747EB3d33611D0FFEA29F448", token0: "0x76Ad08339dF606BeEDe06f90e3FaF82c5b2fb2E9", token1: CONTRACTS.WPC, fee: 500, name: "USDT.arb/WPC" },
   { address: "0x435875db8a76cCAA9cbf73690C6Dc1913BBC9168", token0: "0x2f98B4235FD2BA0173a2B056D722879360B12E7b", token1: CONTRACTS.WPC, fee: 500, name: "USDT.bnb/WPC" },
-  { address: "0x826edC20c926653f4ddC01b8d4C7Df31a403e7d6", token0: "0x7a9082dA308f3fa005beA7dB0d203b3b86664E36", token1: CONTRACTS.WPC, fee: 500, name: "pBNB/WPC" },
+  { address: "0x826edC20c926653f4ddC01b8d4C7Df31a403e7d6", token0: "0x7a9082dA308f3fa005beA7dB0d203b3b86664E36", token1: CONTRACTS.WPC, fee: 500, name: "pBNB/WPC", hidden: true },
   { address: "0xF3578f9dEE1591a45366801CedF91B4935997964", token0: "0xa261A10e94aE4bA88EE8c5845CbE7266bD679DD6", token1: CONTRACTS.WPC, fee: 500, name: "USDC.arb/WPC" },
   { address: "0x96Ef417eA20114D86C2a60864a63A69344234930", token0: "0x84B62e44F667F692F7739Ca6040cD17DA02068A8", token1: CONTRACTS.WPC, fee: 500, name: "USDC.base/WPC" },
 ];
+
+/** Visible tokens (hides internal/mislabelled entries like pBNB). */
+export const VISIBLE_TOKENS: TokenInfo[] = TOKENS.filter(t => !t.hidden);
+
+/** Visible pools (same filter). */
+export const VISIBLE_POOLS: PoolInfo[] = POOLS.filter(p => !p.hidden);
 
 // ═══ UNISWAP V3 ABIs (minimal) ═══
 export const QUOTER_V2_ABI = [

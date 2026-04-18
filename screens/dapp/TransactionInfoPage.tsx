@@ -64,6 +64,46 @@ export const TransactionInfoPage = ({
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   };
 
+  // ── Bridge-out external settlement info ─────────────────────────────────
+  // When the swap triggered an auto bridge-out, SwapPage forwards these three
+  // fields. bridgeOutExternalTxHash is the actual destination-chain tx hash
+  // (e.g. an Etherscan-viewable ETH transfer on Sepolia), which is what the
+  // user cares about — it proves real funds landed on their home chain.
+  const bridgeOutTxHash: string | undefined = swapData.bridgeOutTxHash;
+  const bridgeOutExternalTxHash: string | undefined = swapData.bridgeOutExternalTxHash;
+  const bridgeOutChainLabel: string | undefined = swapData.bridgeOutChainLabel;
+  const bridgeOutOriginSymbol: string | undefined = swapData.bridgeOutOriginSymbol;
+
+  // Map the UI label we received to the right block explorer base URL.
+  // These are all testnets per the current SDK's MOVEABLE_TOKEN registry
+  // (Sepolia / Arbitrum Sepolia / Base Sepolia / BNB Testnet / Solana Devnet).
+  const getBridgeOutExplorerUrl = (): string | null => {
+    if (!bridgeOutExternalTxHash) return null;
+    const label = (bridgeOutChainLabel || "").toLowerCase();
+    if (label === "ethereum")
+      return `https://sepolia.etherscan.io/tx/${bridgeOutExternalTxHash}`;
+    if (label === "arbitrum")
+      return `https://sepolia.arbiscan.io/tx/${bridgeOutExternalTxHash}`;
+    if (label === "base")
+      return `https://sepolia.basescan.org/tx/${bridgeOutExternalTxHash}`;
+    if (label === "bnb chain")
+      return `https://testnet.bscscan.com/tx/${bridgeOutExternalTxHash}`;
+    if (label === "solana")
+      // Solana Devnet requires explicit ?cluster=devnet
+      return `https://solscan.io/tx/${bridgeOutExternalTxHash}?cluster=devnet`;
+    return null;
+  };
+
+  const copyBridgeOutHash = () => {
+    if (!bridgeOutExternalTxHash) return;
+    navigator.clipboard.writeText(bridgeOutExternalTxHash);
+  };
+
+  const openBridgeOutExplorer = () => {
+    const url = getBridgeOutExplorerUrl();
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   return (
     <div className="flex w-full flex-1 flex-col p-2 sm:max-w-3xl sm:p-6">
       {/* Header */}
@@ -172,6 +212,41 @@ export const TransactionInfoPage = ({
             </div>
             <Image src="/quest/header-quest-bg.png" alt="BG" width={200} height={200} className="absolute inset-0 left-0 z-[-1] h-full w-full" />
           </div>
+
+          {/* Bridge-out external settlement: shown only when the swap flow
+              also bridged the output to the user's home chain. This surfaces
+              the REAL tx hash on Sepolia/Arbitrum/BNB/Solana so the user has
+              direct proof of delivery that their native wallet will also
+              show. Without this, users would only see the Push Chain tx and
+              have to manually check their origin wallet to confirm receipt. */}
+          {bridgeOutExternalTxHash && (
+            <div className="relative z-50 mb-2 p-4">
+              <div className="relative flex w-full items-center justify-between gap-4 px-4 py-1">
+                <label className="bg-ground-button-border font-family-ThaleahFat text-peach-300 absolute top-[-2rem] left-4 mb-2 block px-2 text-2xl uppercase">
+                  DELIVERED ON {bridgeOutChainLabel || "ORIGIN"}
+                </label>
+                <div className="absolute top-[-2rem] right-4 flex items-center gap-2">
+                  <button onClick={copyBridgeOutHash} className="bg-ground-button-border ml-2 cursor-pointer p-2 hover:opacity-80">
+                    <Copy className="h-4 w-4 text-yellow-100" />
+                  </button>
+                  <button onClick={openBridgeOutExplorer} className="bg-ground-button-border ml-2 cursor-pointer p-2 hover:opacity-80">
+                    <ExternalLink className="h-4 w-4 text-yellow-100" />
+                  </button>
+                </div>
+                <div className="my-4 flex flex-1 flex-col font-mono text-sm break-all text-yellow-100">
+                  <span className="font-family-ThaleahFat text-xs tracking-wider text-[#7DD3FC] uppercase">
+                    Arrived as {bridgeOutOriginSymbol || "asset"} on {bridgeOutChainLabel || "origin chain"}
+                  </span>
+                  <span className="mt-1">
+                    {bridgeOutExternalTxHash.length > 66
+                      ? `${bridgeOutExternalTxHash.slice(0, 20)}...${bridgeOutExternalTxHash.slice(-20)}`
+                      : bridgeOutExternalTxHash}
+                  </span>
+                </div>
+              </div>
+              <Image src="/quest/header-quest-bg.png" alt="BG" width={200} height={200} className="absolute inset-0 left-0 z-[-1] h-full w-full" />
+            </div>
+          )}
 
           {/* Action Buttons */}
           <div className="flex gap-3">

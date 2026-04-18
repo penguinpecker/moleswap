@@ -26,6 +26,24 @@ declare global {
   }
 }
 
+/**
+ * UI-facing display helpers. Always prefer the RelayCurrency's displaySymbol /
+ * displaySubtitle when present — they carry real-asset names ("ETH", "SOL",
+ * "USDT") with origin chain subtitles ("on Push · Ethereum"). Fall back to
+ * the raw symbol/name if a token hasn't been annotated yet.
+ *
+ * Accepts `unknown | null | undefined` so callers can pass `fromTokenMeta`
+ * directly without null-checking — the helper returns safe defaults.
+ */
+function displaySymbolOf(t: any): string {
+  if (!t) return "";
+  return t.displaySymbol || t.symbol || "";
+}
+function displaySubtitleOf(t: any): string {
+  if (!t) return "";
+  return t.displaySubtitle || t.name || "";
+}
+
 export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   const router = useRouter();
   const pushWallet = usePushWallet();
@@ -345,6 +363,47 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       allTokens.find((t) => t.address?.toLowerCase() === toToken.toLowerCase()),
     [allTokens, toToken],
   );
+
+  // Bridge-out preview: when toToken is bridgeable AND the user's wallet
+  // origin matches the toToken's origin chain, we'll auto-deliver the real
+  // asset to their external wallet after the swap. Surface this in the card
+  // BEFORE the user clicks "Start Swapping" so there are no surprises.
+  // The preview pulls labels from the same PRC20_BRIDGE_MAP used by the
+  // actual send flow in SwapPage.tsx, so label text is always consistent.
+  const [bridgeOutPreview, setBridgeOutPreview] = useState<{
+    label: string;
+    originSymbol: string;
+  } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        if (!toToken || !pushWallet.originChain || !pushWallet.origin) {
+          if (!cancelled) setBridgeOutPreview(null);
+          return;
+        }
+        const { canAutoBridgeFrom, getBridgeInfoForPrc20 } = await import(
+          "@/lib/pushchain/prc20-bridge-map"
+        );
+        if (!canAutoBridgeFrom(toToken, pushWallet.originChain)) {
+          if (!cancelled) setBridgeOutPreview(null);
+          return;
+        }
+        const info = getBridgeInfoForPrc20(toToken);
+        if (info && !cancelled) {
+          setBridgeOutPreview({
+            label: info.uiLabel,
+            originSymbol: info.originSymbol,
+          });
+        }
+      } catch {
+        if (!cancelled) setBridgeOutPreview(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [toToken, pushWallet.originChain, pushWallet.origin]);
 
   // ----- Amount -> wei (kept) -----
   const amountWei = useMemo(() => {
@@ -667,7 +726,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
         return undefined;
       const rate = outNum / toPow / (inNum / fromPow);
       if (!isFinite(rate)) return undefined;
-      return `1 ${fromTokenMeta.symbol} = ${(rate * 1).toFixed(6)} ${toTokenMeta.symbol}`;
+      return `1 ${displaySymbolOf(fromTokenMeta)} = ${(rate * 1).toFixed(6)} ${displaySymbolOf(toTokenMeta)}`;
     } catch {
       return undefined;
     }
@@ -1017,10 +1076,128 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
           return;
         }
 
-        // ─ EVM origin path ─ (Sepolia / Arbitrum / Base / BNB)
-        // For EVM origins we'd need to query the corresponding testnet RPC.
-        // Skipped for now — EVM wallets typically show their own balance next
-        // to the Connect button so the user already knows.
+        // ─ Solana origin, ERC-20/SPL token path (e.g. USDT on Solana Devnet) ─
+        // Read the SPL token balance at the associated token account.
+        if (bridge.originChain.startsWith("solana:") && bridge.originSymbol !== "SOL") {
+          try {
+            const resp = await fetch("https://api.devnet.solana.com", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jsonrpc: "2.0",
+                id: 1,
+                method: "getTokenAccountsByOwner",
+                params: [
+                  pushWallet.origin,
+                  { mint: bridge.originAddress },
+                  { encoding: "jsonParsed" },
+                ],
+              }),
+            });
+            const json = await resp.json();
+            const accounts = json?.result?.value || [];
+            let total = 0;
+            for (const acc of accounts) {
+              const amt = acc?.account?.data?.parsed?.info?.tokenAmount?.uiAmount;
+              if (typeof amt === "number") total += amt;
+            }
+            if (!cancelled) {
+              setOriginBalance(total.toFixed(6));
+              setPhantomClusterWarning(null);
+            }
+          } catch (err) {
+            console.warn("[MoleSwap] SPL token balance fetch failed:", err);
+            if (!cancelled) {
+              setOriginBalance(null);
+              setPhantomClusterWarning(null);
+            }
+          }
+          return;
+        }
+
+        // ─ EVM origin path ─ (Sepolia / Arbitrum / Base / BNB Testnet)
+        // Map the SDK's CAIP-style chain identifier to a public testnet RPC
+        // so we can query the user's native or ERC-20 balance directly. This
+        // gives real-time "+X available to bridge" info in the UI — same
+        // pattern as the Solana path above.
+        if (bridge.originChain.startsWith("eip155:")) {
+          const EVM_RPC: Record<string, string> = {
+            "eip155:11155111": "https://ethereum-sepolia-rpc.publicnode.com",
+            "eip155:421614":   "https://arbitrum-sepolia-rpc.publicnode.com",
+            "eip155:84532":    "https://base-sepolia-rpc.publicnode.com",
+            "eip155:97":       "https://bsc-testnet-rpc.publicnode.com",
+          };
+          const rpcUrl = EVM_RPC[bridge.originChain.toLowerCase()];
+          if (!rpcUrl) {
+            if (!cancelled) {
+              setOriginBalance(null);
+              setPhantomClusterWarning(null);
+            }
+            return;
+          }
+
+          try {
+            const userAddr = pushWallet.origin;
+            let balance: bigint = 0n;
+            if (bridge.originSymbol === "ETH") {
+              // Native balance
+              const resp = await fetch(rpcUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "eth_getBalance",
+                  params: [userAddr, "latest"],
+                }),
+              });
+              const json = await resp.json();
+              if (json?.result) balance = BigInt(json.result);
+            } else {
+              // ERC-20 balanceOf(address)
+              // 0x70a08231 = balanceOf(address) selector
+              const data =
+                "0x70a08231" +
+                userAddr.toLowerCase().replace(/^0x/, "").padStart(64, "0");
+              const resp = await fetch(rpcUrl, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  jsonrpc: "2.0",
+                  id: 1,
+                  method: "eth_call",
+                  params: [{ to: bridge.originAddress, data }, "latest"],
+                }),
+              });
+              const json = await resp.json();
+              if (json?.result && json.result !== "0x") balance = BigInt(json.result);
+            }
+
+            // Format respecting the origin-chain decimals (native ETH is 18,
+            // USDT on each chain is 6 per the bridge map).
+            const decimals = bridge.originDecimals;
+            const divisor = 10n ** BigInt(decimals);
+            const whole = balance / divisor;
+            const frac = balance % divisor;
+            // Build a float-safe decimal string without Number overflow
+            const fracStr = frac.toString().padStart(decimals, "0").slice(0, 6);
+            const formatted = `${whole.toString()}.${fracStr}`;
+
+            if (!cancelled) {
+              setOriginBalance(formatted);
+              setPhantomClusterWarning(null);
+            }
+            return;
+          } catch (err) {
+            console.warn("[MoleSwap] EVM origin balance fetch failed:", err);
+            if (!cancelled) {
+              setOriginBalance(null);
+              setPhantomClusterWarning(null);
+            }
+            return;
+          }
+        }
+
         if (!cancelled) {
           setOriginBalance(null);
           setPhantomClusterWarning(null);
@@ -1308,10 +1485,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                             </div>
                             <div className="text-left">
                               <h2 className="font-family-ThaleahFat text-xl tracking-wider text-white uppercase sm:text-3xl sm:tracking-widest">
-                                {token.symbol}
+                                {displaySymbolOf(token)}
                               </h2>
                               <p className="font-family-ThaleahFat -mt-1 text-sm tracking-wider text-[#B0B0B0] uppercase sm:-mt-2 sm:text-lg sm:tracking-widest">
-                                {token.name}
+                                {displaySubtitleOf(token)}
                               </p>
                             </div>
                           </div>
@@ -1644,7 +1821,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                         {fromChain?.displayName ||
                           fromChain?.name ||
                           "Select Network"}{" "}
-                        / {fromTokenMeta?.symbol || "Select Token"}
+                        / {displaySymbolOf(fromTokenMeta) || "Select Token"}
                       </p>
                     </div>
                   </div>
@@ -1744,7 +1921,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                         {toChain?.displayName ||
                           toChain?.name ||
                           "Select Network"}{" "}
-                        / {toTokenMeta?.symbol || "Select Token"}
+                        / {displaySymbolOf(toTokenMeta) || "Select Token"}
                       </p>
                     </div>
                   </div>
@@ -1756,6 +1933,19 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                     className="absolute inset-0 left-0 z-[-1] h-full w-full"
                   />
                 </div>
+
+                {/* Bridge-out preview — when the output is deliverable to the
+                    user's origin-chain wallet as the real asset, surface this
+                    upfront so they know the swap completes with a destination
+                    settlement on their home chain. No extra clicks from the
+                    user — they just see the promise of where funds will land. */}
+                {bridgeOutPreview && (
+                  <div className="relative z-10 mx-auto -mt-2 w-full px-6 sm:w-[90%]">
+                    <p className="font-family-ThaleahFat text-xs tracking-wider uppercase text-[#7DD3FC] sm:text-sm">
+                      ✓ Will arrive as {bridgeOutPreview.originSymbol} on {bridgeOutPreview.label}
+                    </p>
+                  </div>
+                )}
 
                 {/* Amount */}
                 <div className="relative z-10 mx-auto w-full rounded-lg px-6 py-4 text-center sm:w-[90%]">
@@ -1776,7 +1966,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                           inputMode="decimal"
                         />
                         <span className="text-peach-300">
-                          {fromTokenMeta?.symbol ?? ""}
+                          {displaySymbolOf(fromTokenMeta)}
                         </span>
                       </div>
                       {/* Balance Display inside Send card */}
@@ -1797,25 +1987,28 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                                     minimumFractionDigits: 0,
                                   },
                                 )}{" "}
-                                {fromTokenMeta?.symbol || ""}
+                                {displaySymbolOf(fromTokenMeta)}
                                 {balanceUsdValue && (
                                   <span className="text-[#BCBCBC]">
                                     {" "}
                                     (${Number(balanceUsdValue).toFixed(2)})
                                   </span>
                                 )}
-                                {/* Origin-chain balance: "+ 0.93 SOL on Solana" */}
+                                {/* Origin-chain balance: shows real-asset
+                                    balance on the source chain (e.g. SOL on
+                                    Solana Devnet, ETH on Sepolia) the user
+                                    can bridge into this swap. */}
                                 {originBalance && Number(originBalance) > 0 && (
                                   <span className="text-[#7DD3FC]">
                                     {" "}
-                                    (+ {Number(originBalance).toLocaleString(undefined, { maximumFractionDigits: 6 })} available to bridge)
+                                    (+ {Number(originBalance).toLocaleString(undefined, { maximumFractionDigits: 6 })} {(fromTokenMeta as any)?.originSymbol || ""} on {(fromTokenMeta as any)?.originChainName || (fromTokenMeta as any)?.sourceChain || "origin"})
                                   </span>
                                 )}
                               </p>
                             ) : (
                               <p className="font-family-ThaleahFat text-sm tracking-widest text-[#8B8B8B] uppercase">
                                 {originBalance && Number(originBalance) > 0
-                                  ? `Balance: 0 ${fromTokenMeta?.symbol || ""} (+ ${Number(originBalance).toLocaleString(undefined, { maximumFractionDigits: 6 })} available to bridge)`
+                                  ? `Balance: 0 ${displaySymbolOf(fromTokenMeta)} (+ ${Number(originBalance).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${(fromTokenMeta as any)?.originSymbol || ""} on ${(fromTokenMeta as any)?.originChainName || (fromTokenMeta as any)?.sourceChain || "origin"})`
                                   : "Unable to load balance"}
                               </p>
                             )}
@@ -1965,7 +2158,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                             </div>
                             <div className="text-sm font-semibold text-[#BCBCBC]">
                               <span>
-                                {toTokenMeta?.symbol} on{" "}
+                                {displaySymbolOf(toTokenMeta)} on{" "}
                                 {toChain?.displayName || toChain?.name}
                               </span>
                               {feesDisplayLabel ? (
@@ -1989,7 +2182,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                           </div>
                           <div className="text-xs font-semibold text-[#BCBCBC]">
                             {rateLabel ||
-                              `From ${fromTokenMeta?.symbol} to ${toTokenMeta?.symbol}`}
+                              `From ${displaySymbolOf(fromTokenMeta)} to ${displaySymbolOf(toTokenMeta)}`}
                           </div>
                           {routeLabel && (
                             <div className="text-xs text-[#9a9a9a]">

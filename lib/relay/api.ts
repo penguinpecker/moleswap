@@ -16,6 +16,28 @@ export interface RelayCurrency {
   decimals: number;
   logoURI?: string;
   sourceChain?: string;
+  /**
+   * User-facing ticker (e.g. "ETH", "SOL", "USDT"). Falls back to `symbol`
+   * if absent. UI components should prefer this to avoid showing users
+   * internal names like "pETH" or "USDT.eth".
+   */
+  displaySymbol?: string;
+  /**
+   * Subtitle shown under the symbol to disambiguate which chain's ETH/USDT/etc.
+   * this is (e.g. "on Push · Ethereum"). Falls back to `name`.
+   */
+  displaySubtitle?: string;
+  /**
+   * Origin chain this PRC-20 can be bridged to/from via Push's Universal
+   * Gateway. Null for non-bridgeable tokens (e.g. WPC, USDC on any chain).
+   * Used by the UI to show per-token origin-chain balances and to trigger
+   * the auto bridge-out flow.
+   */
+  originChainName?: string;
+  /** Symbol of the origin-chain asset (e.g. "ETH", "SOL", "USDT"). */
+  originSymbol?: string;
+  /** Whether this token is bridgeable at all. */
+  bridgeable?: boolean;
 }
 
 export interface RelayChain {
@@ -31,6 +53,8 @@ export interface RelayChain {
     name: string;
     address?: string;
     decimals: number;
+    displaySymbol?: string;
+    displaySubtitle?: string;
   };
   erc20Currencies?: RelayCurrency[];
   featuredTokens?: (RelayCurrency & { metadata?: { logoURI?: string } })[];
@@ -47,7 +71,10 @@ const SOURCE_CHAINS: Record<string, { displayName: string; icon: string; order: 
 };
 
 export async function getChains(): Promise<RelayChain[]> {
-  const swappable = TOKENS.filter(t => t.swappable !== false);
+  // Filter out `hidden:true` tokens (e.g. the legacy "pBNB" entry which is
+  // actually pETH_BNB per the SDK and confuses users). Also keep the existing
+  // `swappable !== false` filter.
+  const swappable = TOKENS.filter(t => t.swappable !== false && !t.hidden);
 
   // Group tokens by sourceChain
   const groups: Record<string, TokenInfo[]> = {};
@@ -74,6 +101,8 @@ export async function getChains(): Promise<RelayChain[]> {
         name: "Push Chain",
         address: "0x0000000000000000000000000000000000000000",
         decimals: 18,
+        displaySymbol: "PC",
+        displaySubtitle: "Push Chain native",
       } : undefined,
       featuredTokens: tokens.map((t) => ({
         id: t.address,
@@ -84,6 +113,13 @@ export async function getChains(): Promise<RelayChain[]> {
         logoURI: t.logoURI,
         sourceChain: t.sourceChain,
         metadata: { logoURI: t.logoURI },
+        // Propagate display + bridge fields so UI can render real asset names
+        // and offer the auto bridge-in/out flows. Null when absent on TokenInfo.
+        displaySymbol: t.displaySymbol,
+        displaySubtitle: t.displaySubtitle,
+        originChainName: t.sourceChain,
+        originSymbol: t.originSymbol,
+        bridgeable: t.bridgeable,
       })),
     });
   }
@@ -107,5 +143,10 @@ export function getTokensForChain(chain: RelayChain): RelayCurrency[] {
     decimals: t.decimals,
     logoURI: t.metadata?.logoURI || t.logoURI,
     sourceChain: (t as any).sourceChain,
+    displaySymbol: (t as any).displaySymbol,
+    displaySubtitle: (t as any).displaySubtitle,
+    originChainName: (t as any).originChainName,
+    originSymbol: (t as any).originSymbol,
+    bridgeable: (t as any).bridgeable,
   }));
 }
