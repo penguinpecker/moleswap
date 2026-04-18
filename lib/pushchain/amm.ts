@@ -970,23 +970,40 @@ export async function executeSwap(params: {
       });
     }
 
-    // If native PC in, we must wrap first. Include the wrap call in the multicall.
-    // The wrap is `wpc.deposit() payable` with value = amountIn. Inside a
-    // multicall the native value is taken from the caller (UEA), which the SDK
-    // ensures has enough balance from the `funds` transfer.
-    // NOTE: Skip wrap if we have a bridge step that brings in native PC
-    // equivalent (handled by SDK; the gateway mints WPC directly when the
-    // origin is Push Chain itself, but since that case is sequential anyway
-    // the wrap stays).
+    // If native PC in, we must wrap first. The Push gateway's multicall ABI
+    // decoder fails when any step inside a batch has a non-zero `value` field
+    // (confirmed by repeated on-chain failures: "failed to unpack payload:
+    // offset 0x2cc2842d would go over slice boundary"). To sidestep this, we
+    // ONLY include the wrap inside a multicall when bridge-in handles the
+    // native input. Otherwise we do the wrap as a separate tx (pre-step)
+    // outside the batch.
+    let wrapAsPreStep = false;
     if (isNativeIn && !bridgeInfo) {
       const wpcIface = new ethers.Interface(["function deposit() payable"]);
-      steps.push({
-        type: "swap",
-        to: CONTRACTS.WPC,
-        value: amountIn.toString(),
-        data: wpcIface.encodeFunctionData("deposit"),
-        label: "Wrap PC → WPC",
-      });
+      const isCrossChainUser = !isPushChain(params.originChain || null);
+      if (isCrossChainUser) {
+        // Cross-chain user (MetaMask Sepolia / Phantom / etc.) with native PC
+        // in. Can't use multicall with value. Execute wrap as its own tx first.
+        wrapAsPreStep = true;
+        onStep(0, "Wrap PC → WPC", "signing");
+        await client.universal.sendTransaction({
+          to: CONTRACTS.WPC,
+          value: amountIn,
+          data: wpcIface.encodeFunctionData("deposit"),
+        });
+        onStep(0, "Wrap PC → WPC", "confirmed");
+        // Give the wrap a moment to settle before the next tx reads WPC balance.
+        await new Promise(r => setTimeout(r, 4000));
+      } else {
+        // Push-native user: sequential path in executeSteps handles value OK.
+        steps.push({
+          type: "swap",
+          to: CONTRACTS.WPC,
+          value: amountIn.toString(),
+          data: wpcIface.encodeFunctionData("deposit"),
+          label: "Wrap PC → WPC",
+        });
+      }
     }
 
     // Detect multi-hop: no direct pool for tokenIn↔tokenOut, route via WPC
