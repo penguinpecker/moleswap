@@ -69,26 +69,19 @@ export const SwapPage = ({
   const [approvalHash, setApprovalHash] = useState<string | null>(null);
   const [requireApproval, setRequireApproval] = useState<boolean | null>(null);
 
-  // ═══ BRIDGE-OUT DETECTION ═══════════════════════════════════════════════
-  // When a user swaps INTO a bridgeable PRC-20 AND their connected wallet's
-  // origin chain is the same chain the PRC-20 maps to, we auto-append a
-  // Route-2 bridge-out step to deliver the real asset to the user's external
-  // wallet (e.g. swap USDT.eth → pSOL on Push, and if you're on Phantom, the
-  // pSOL gets auto-bridged to real SOL on Solana Devnet in the same flow).
+  // ═══ BRIDGE-IN DETECTION ═════════════════════════════════════════════════
+  // When the user's wallet origin chain matches the fromToken's origin chain,
+  // executeSwap will auto-prepend a bridge step that locks the real origin
+  // asset (SOL on Phantom, ETH on MetaMask Sepolia, etc.) and mints PRC-20
+  // into the UEA atomically with the swap. This matches RamenFi's behavior.
   //
-  // bridgeOutEligible is true when:
-  //   - toToken is in the PRC20_BRIDGE_MAP (has an SDK bridge mapping)
-  //   - user's wallet origin matches the toToken's origin chain
-  // bridgeOutTo is the user's external address on that origin chain.
+  // This flag is only used to inform the UI — the actual bridge is decided
+  // server-side in executeSwap based on the same predicate.
   const originChainForHooks =
     (pushWallet as any)?.originChain ||
     (pushWallet as any)?.universalAccount?.chain ||
     null;
-  const originAddressForHooks =
-    (pushWallet as any)?.origin ||
-    (pushWallet as any)?.universalAccount?.owner ||
-    null;
-  const [bridgeOutInfo, setBridgeOutInfo] = useState<{
+  const [bridgeInInfo, setBridgeInInfo] = useState<{
     eligible: boolean;
     uiLabel: string;
     originSymbol: string;
@@ -98,34 +91,34 @@ export const SwapPage = ({
     let cancelled = false;
     (async () => {
       try {
-        if (!swapData.toToken || !originChainForHooks || !originAddressForHooks) {
-          if (!cancelled) setBridgeOutInfo(null);
+        if (!swapData.fromToken || !originChainForHooks) {
+          if (!cancelled) setBridgeInInfo(null);
           return;
         }
         const { canAutoBridgeFrom, getBridgeInfoForPrc20 } = await import(
           "@/lib/pushchain/prc20-bridge-map"
         );
-        if (!canAutoBridgeFrom(swapData.toToken, originChainForHooks)) {
-          if (!cancelled) setBridgeOutInfo(null);
+        if (!canAutoBridgeFrom(swapData.fromToken, originChainForHooks)) {
+          if (!cancelled) setBridgeInInfo(null);
           return;
         }
-        const info = getBridgeInfoForPrc20(swapData.toToken);
+        const info = getBridgeInfoForPrc20(swapData.fromToken);
         if (info && !cancelled) {
-          setBridgeOutInfo({
+          setBridgeInInfo({
             eligible: true,
             uiLabel: info.uiLabel,
             originSymbol: info.originSymbol,
           });
         }
       } catch (err) {
-        console.warn("[MoleSwap] bridge-out eligibility probe failed:", err);
-        if (!cancelled) setBridgeOutInfo(null);
+        console.warn("[MoleSwap] bridge-in eligibility probe failed:", err);
+        if (!cancelled) setBridgeInInfo(null);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [swapData.toToken, originChainForHooks, originAddressForHooks]);
+  }, [swapData.fromToken, originChainForHooks]);
 
   // Step list is derived from the quote (which knows the exact route: wrap/no-wrap,
   // approve-or-skip, single-hop vs multi-hop) rather than hardcoded. This ensures
@@ -145,18 +138,17 @@ export const SwapPage = ({
           { label: "Approve token", status: "pending" as const },
           { label: "Swap tokens", status: "pending" as const },
         ];
-    // Append bridge-out steps when the user will receive the asset on its
-    // native origin chain. Two rows so the user can see the destination-chain
-    // settlement progress distinctly from the swap itself.
-    if (bridgeOutInfo?.eligible) {
+    // If bridge-in is eligible, the entire flow collapses into ONE signature
+    // (origin-chain lock + UEA upgrade + approve + swap all atomic). Show a
+    // single combined row so the user isn't surprised by a 1-click signing
+    // experience for what looks like a 3-step flow.
+    if (bridgeInInfo?.eligible) {
       base = [
-        ...base,
-        { label: `Bridge out to ${bridgeOutInfo.uiLabel}`, status: "pending" as const },
-        { label: `Confirming on ${bridgeOutInfo.uiLabel}`, status: "pending" as const },
+        { label: `Bridge ${bridgeInInfo.originSymbol} from ${bridgeInInfo.uiLabel} & swap`, status: "pending" as const },
       ];
     }
     return base;
-  }, [swapData.quote, bridgeOutInfo]);
+  }, [swapData.quote, bridgeInInfo]);
 
   const [swapSteps, setSwapSteps] = useState<Array<{ label: string; status: "pending" | "signing" | "confirmed" | "error" }>>(initialSwapSteps);
 
@@ -579,11 +571,6 @@ export const SwapPage = ({
           (pushWallet as any)?.originChain ||
           (pushWallet as any)?.universalAccount?.chain ||
           null,
-        // Auto-deliver the output asset to the user's external wallet when
-        // the toToken is bridgeable and their origin chain matches. This is
-        // the "Phantom SOL → real ETH on Sepolia" one-click UX from the user's
-        // perspective, though under the hood it's two sigs (swap + bridge-out).
-        bridgeOutTo: bridgeOutInfo?.eligible ? originAddressForHooks : null,
         onStep: (_stepIdx, label, status) => {
           // Match emitted label to the step row in the quote-derived list.
           // Label casing from amm.ts is now normalized to match quote.steps.
@@ -696,13 +683,6 @@ export const SwapPage = ({
           txHashes[txHashes.length - 1] ||
           "",
         txHashes: finalTxHashes.length > 0 ? finalTxHashes : txHashes,
-        // Extra metadata for rendering the bridge-out settlement on the
-        // destination chain. Undefined when no bridge-out ran — the TX info
-        // page conditionally shows an "External Tx" row when present.
-        bridgeOutTxHash: swapResult.bridgeOutTxHash,
-        bridgeOutExternalTxHash: swapResult.bridgeOutExternalTxHash,
-        bridgeOutChainLabel: bridgeOutInfo?.uiLabel,
-        bridgeOutOriginSymbol: bridgeOutInfo?.originSymbol,
       });
     } catch (error: any) {
       // eslint-disable-next-line no-console

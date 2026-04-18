@@ -5,7 +5,7 @@ import { NavBar, BackgroundImage } from "../shared";
 import { RefreshCw, Plus, Minus, ArrowUpRight, ChevronDown, AlertTriangle, Loader2 } from "lucide-react";
 import { usePushWalletContext, usePushChainClient, PushUI } from "@pushchain/ui-kit";
 import {
-  CONTRACTS, VISIBLE_TOKENS as TOKENS, VISIBLE_POOLS as AMM_POOLS,
+  CONTRACTS, TOKENS, POOLS as AMM_POOLS,
   getTokenByAddress, findPool,
   getSwapQuote, getProvider,
   AMM_ROUTER, AMM_FACTORY, PUSHCHAIN_CHAIN_ID,

@@ -805,22 +805,19 @@ export async function executeSwap(params: {
   fee?: number;
   deadline?: number;
   universalTxOptions?: UniversalTxOptions;
-  originChain?: string | null;  // NEW: pass origin chain from provider so we can route
+  originChain?: string | null;  // pass origin chain from provider so we can route
   /**
-   * If set, after the swap completes we'll burn the received `tokenOut` on
-   * Push Chain and release the underlying native asset (or ERC-20/SPL) on
-   * its origin chain to this address via SDK Route 2.
-   *
-   * Required conditions for bridge-out to run:
-   *   - `bridgeOutTo` is a non-empty address matching the origin chain's format
-   *   - `tokenOut` is a PRC-20 with a registered bridge mapping in prc20-bridge-map.ts
-   *   - The UEA ends up with enough PC for outbound gas (>=5 PC per Push docs)
-   * When any condition fails, we skip the bridge-out and return the swap tx
-   * hash with no error — the user still has the PRC-20 in their UEA.
+   * @deprecated Kept in the signature so callers that pass it don't crash, but
+   * this post-swap Route-2 "bridge-out" path has been removed. RamenFi
+   * doesn't do bridge-out and Push Chain's universal.sendTransaction Route-2
+   * can't deliver a PRC-20-origin asset to a wallet whose address format
+   * doesn't match the PRC-20's origin chain (e.g. a Solana pubkey on Sepolia).
+   * Swap destination is always Push Chain. Use a dedicated bridge flow later
+   * if the user wants their asset on the origin chain.
    */
   bridgeOutTo?: string | null;
   onStep?: (step: number, label: string, status: "pending" | "signing" | "confirmed" | "error") => void;
-}): Promise<{ txHash: string; success: boolean; error?: string; bridgeOutTxHash?: string; bridgeOutExternalTxHash?: string }> {
+}): Promise<{ txHash: string; success: boolean; error?: string }> {
   const onStep = params.onStep || (() => {});
   try {
     // Wrap the client with RamenFi's guarded proxy (upgrade check before every send).
@@ -914,18 +911,43 @@ export async function executeSwap(params: {
 
     let bridgeSdkToken: any = null;
     if (bridgeInfo) {
-      // Try to access PushChain.CONSTANTS.MOVEABLE.TOKEN from the client
-      // instance (it's a static property on the SDK's PushChain class).
+      // Three paths to resolve MOVEABLE.TOKEN — try all of them:
+      // 1. pushChainClient.constructor.CONSTANTS (most common; SDK v5)
+      // 2. pushChainClient.CONSTANTS (direct instance prop)
+      // 3. Dynamic import of @pushchain/core as a last resort
       try {
-        // pushChainClient is an instance; its constructor exposes CONSTANTS
-        const ctorConstants = (params.pushChainClient as any)?.constructor?.CONSTANTS
-          || (params.pushChainClient as any)?.CONSTANTS;
+        const ctorConstants =
+          (params.pushChainClient as any)?.constructor?.CONSTANTS ||
+          (params.pushChainClient as any)?.CONSTANTS;
         const moveable = ctorConstants?.MOVEABLE?.TOKEN;
         if (moveable) {
           bridgeSdkToken = getSdkMoveableToken(params.tokenIn, moveable);
         }
       } catch (err) {
-        console.warn("[MoleSwap] Could not access MOVEABLE.TOKEN constants:", err);
+        console.warn("[MoleSwap] Could not access MOVEABLE.TOKEN via client:", err);
+      }
+
+      // Fallback: import the SDK directly
+      if (!bridgeSdkToken) {
+        try {
+          const { PushChain } = await import("@pushchain/core");
+          const moveable = (PushChain as any)?.CONSTANTS?.MOVEABLE?.TOKEN;
+          if (moveable) {
+            bridgeSdkToken = getSdkMoveableToken(params.tokenIn, moveable);
+          }
+        } catch (err) {
+          console.warn("[MoleSwap] Could not dynamic-import @pushchain/core for MOVEABLE constants:", err);
+        }
+      }
+
+      // Loud warning if cross-chain user's bridge path can't be resolved —
+      // this is the silent failure that caused Phantom users to unknowingly
+      // drain their existing UEA pSOL balance instead of spending real SOL.
+      if (!bridgeSdkToken) {
+        console.error(
+          "[MoleSwap] CROSS-CHAIN BRIDGE-IN FAILED: user origin matches fromToken origin but MOVEABLE.TOKEN resolution failed.",
+          { tokenIn: params.tokenIn, originChain: bridgeInfo.originChain, originSymbol: bridgeInfo.originSymbol },
+        );
       }
     }
 
@@ -1088,146 +1110,10 @@ export async function executeSwap(params: {
       pollPushReceipt,
     });
 
-    // ═══ POST-SWAP BRIDGE-OUT (Route 2) ═══════════════════════════════════
-    // If the swap succeeded AND the user wants the output on the origin chain,
-    // we now burn the PRC-20 on Push Chain and release the underlying asset
-    // via the SDK's `universal.sendTransaction({ to: { address, chain }, ... })`.
-    //
-    // This is a SEPARATE sig from the swap because:
-    //   1. We need the actual received amount (which differs from amountOutMin
-    //      due to slippage/price movement), so we read the UEA balance here.
-    //   2. Route 2 outbound requires ≥5 PC in the UEA for gas, which the
-    //      swap may need to produce first.
-    //   3. The SDK's Route 2 path is a "funds-out" tx — it can't be bundled
-    //      into the same multicall as the inbound swap.
-    //
-    // Per Push Chain docs at docs__chain__03-build__07-Universal-Transaction-Scenarios.mdx
-    // lines 660–692 (native funds out) and 727–750 (ERC-20 funds out).
-    let bridgeOutTxHash: string | undefined;
-    let bridgeOutExternalTxHash: string | undefined;
-
-    if (result.success && params.bridgeOutTo) {
-      try {
-        // Look up the destination chain + origin address format from the
-        // authoritative bridge map. If toToken isn't bridgeable, we skip.
-        const bridgeInfo = getBridgeInfoForPrc20(params.tokenOut);
-        if (!bridgeInfo) {
-          console.log("[MoleSwap] Skipping bridge-out: tokenOut is not a bridgeable PRC-20");
-        } else {
-          // Resolve chain constant from SDK
-          const ctorConstants =
-            (params.pushChainClient as any)?.constructor?.CONSTANTS ||
-            (params.pushChainClient as any)?.CONSTANTS;
-          const chainConstant = ctorConstants?.CHAIN?.[bridgeInfo.originChainSdkName];
-          if (!chainConstant) {
-            console.warn("[MoleSwap] Bridge-out: could not resolve SDK CHAIN constant for", bridgeInfo.originChainSdkName);
-          } else {
-            onStep(steps.length, `Bridge out to ${bridgeInfo.uiLabel}`, "pending");
-
-            // Read actual received amount from UEA (post-swap PRC-20 balance).
-            // We bridge out the MIN of (amountOutMin, balance) to be safe —
-            // the user shouldn't lose more than they agreed to when they
-            // signed the swap. If balance is lower than amountOutMin (shouldn't
-            // happen post-successful-swap but defensive), we bridge the balance.
-            const erc20Iface = new ethers.Interface([
-              "function balanceOf(address) view returns (uint256)",
-            ]);
-            let balance: bigint = 0n;
-            try {
-              const balanceData = erc20Iface.encodeFunctionData("balanceOf", [params.recipient]);
-              const rpcUrl = "https://evm.donut.rpc.push.org/";
-              const resp = await fetch(rpcUrl, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  jsonrpc: "2.0",
-                  id: 1,
-                  method: "eth_call",
-                  params: [{ to: params.tokenOut, data: balanceData }, "latest"],
-                }),
-              });
-              const rpcJson = await resp.json();
-              if (rpcJson.result) {
-                balance = BigInt(rpcJson.result);
-              }
-            } catch (balErr) {
-              console.warn("[MoleSwap] Bridge-out: balance fetch failed, using amountOutMin:", balErr);
-            }
-            const bridgeAmount = balance > 0n && balance < amountOutMin ? balance : amountOutMin;
-
-            // Build the Route-2 tx. For native assets (ETH, SOL) use `value`;
-            // for ERC-20/SPL assets (USDT.*) use `funds.token`.
-            let bridgeOutTx: any;
-            if (bridgeInfo.originSymbol === "ETH" || bridgeInfo.originSymbol === "SOL") {
-              // Native funds-out
-              bridgeOutTx = {
-                to: { address: params.bridgeOutTo, chain: chainConstant },
-                value: bridgeAmount,
-              };
-            } else {
-              // ERC-20/SPL funds-out — need MOVEABLE token constant
-              const moveable = ctorConstants?.MOVEABLE?.TOKEN;
-              const sdkToken = moveable
-                ? getSdkMoveableToken(params.tokenOut, moveable)
-                : null;
-              if (!sdkToken) {
-                throw new Error(`Could not resolve SDK MOVEABLE token for ${params.tokenOut}`);
-              }
-              bridgeOutTx = {
-                to: { address: params.bridgeOutTo, chain: chainConstant },
-                funds: { amount: bridgeAmount, token: sdkToken },
-              };
-            }
-
-            console.log("[MoleSwap] Bridge-out tx:", {
-              to: bridgeOutTx.to,
-              value: bridgeOutTx.value?.toString?.(),
-              funds: bridgeOutTx.funds
-                ? { amount: bridgeOutTx.funds.amount.toString(), symbol: bridgeInfo.originSymbol }
-                : undefined,
-            });
-
-            onStep(steps.length, `Bridge out to ${bridgeInfo.uiLabel}`, "signing");
-            const bridgeOutResp = await client.universal.sendTransaction(bridgeOutTx);
-            bridgeOutTxHash = bridgeOutResp?.hash;
-
-            // Wait for the external (destination-chain) confirmation. This
-            // gives us `externalTxHash` — the actual ETH/SOL/USDT tx that
-            // the user can verify on Etherscan/Solscan/BNBscan.
-            onStep(steps.length, `Confirming on ${bridgeInfo.uiLabel}`, "signing");
-            const bridgeOutReceipt = await bridgeOutResp.wait();
-            bridgeOutExternalTxHash = bridgeOutReceipt?.externalTxHash;
-            onStep(steps.length, `Arrived on ${bridgeInfo.uiLabel}`, "confirmed");
-
-            console.log("[MoleSwap] Bridge-out confirmed:", {
-              pushTxHash: bridgeOutTxHash,
-              externalTxHash: bridgeOutExternalTxHash,
-              externalChain: bridgeOutReceipt?.externalChain,
-              explorer: bridgeOutReceipt?.externalExplorerUrl,
-            });
-          }
-        }
-      } catch (bridgeErr: any) {
-        // Bridge-out failure is non-fatal — the swap already succeeded and
-        // the user holds the PRC-20 in their UEA. They can retry later with
-        // a dedicated bridge-out flow. Return the swap hash and the error msg.
-        const bridgeErrMsg = bridgeErr?.message || String(bridgeErr);
-        console.error("[MoleSwap] Bridge-out failed (swap still succeeded):", bridgeErrMsg);
-        onStep(steps.length, `Bridge-out failed: ${bridgeErrMsg.slice(0, 80)}`, "error");
-        return {
-          txHash: result.txHash || "",
-          success: result.success,
-          error: `Swap succeeded but bridge-out failed: ${bridgeErrMsg}`,
-        };
-      }
-    }
-
     return {
       txHash: result.txHash || "",
       success: result.success,
       error: result.error,
-      bridgeOutTxHash,
-      bridgeOutExternalTxHash,
     };
   } catch (err: any) {
     const decoded = getContractErrorMessage(err);
