@@ -13,6 +13,7 @@ import { getTokenBalance } from "@/lib/wallet/walletClient";
 import { useRouter } from "next/navigation";
 import type { Address } from "viem";
 import Settings from "../settings";
+import { diagnostics } from "@/lib/diagnostics";
 
 interface ExchangePageProps {
   onNext: (step: DappStep, data?: any) => void;
@@ -126,6 +127,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   useEffect(() => {
     if (pushWallet.isConnected && pushWallet.address) {
       if (pushWallet.address !== walletAddress) {
+        diagnostics.logSessionEvent("PushChain wallet changed", {
+          from: walletAddress?.slice(0, 10),
+          to: pushWallet.address?.slice(0, 10),
+        });
         setSwapHistory([]);
         try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}
       }
@@ -133,6 +138,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       setRecipientAddress(pushWallet.address);
     }
     if (!pushWallet.isConnected && walletAddress) {
+      diagnostics.logSessionEvent("PushChain wallet disconnected", {
+        previousAddress: walletAddress?.slice(0, 10),
+      });
       setWalletAddress(null);
       setRecipientAddress(null);
       setSwapHistory([]);
@@ -208,6 +216,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
         const onAccountsChanged = (accounts: string[]) => {
           const first = accounts?.[0];
           // CRITICAL: Clear swap history when wallet changes to prevent cross-wallet data leakage
+          diagnostics.logSessionEvent("MetaMask accountsChanged", {
+            newAccount: first?.slice(0, 10) || "none",
+          });
           setSwapHistory([]);
           try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}
 
@@ -251,6 +262,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
           provider.on("accountsChanged", (accounts: string[]) => {
             const first = accounts?.[0];
             // CRITICAL: Clear swap history when wallet changes to prevent cross-wallet data leakage
+            diagnostics.logSessionEvent("WalletConnect accountsChanged", {
+              newAccount: first?.slice(0, 10) || "none",
+            });
             setSwapHistory([]);
             try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}
 
@@ -267,6 +281,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
 
           // Listen for disconnect events from WalletConnect
           provider.on("disconnect", () => {
+            diagnostics.logSessionEvent("WalletConnect disconnected");
             setWalletAddress(null);
             setRecipientAddress(null);
             setShowReceive(false);
@@ -301,6 +316,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   // ----- Listen for custom wallet disconnect event -----
   useEffect(() => {
     const handleWalletDisconnect = () => {
+      diagnostics.logSessionEvent("Custom walletDisconnected event");
       setWalletAddress(null);
       setRecipientAddress(null);
       setShowReceive(false);
@@ -323,6 +339,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       const addr = customEvent.detail?.address;
       // Same hex guard — reject non-EVM addresses that would break Push RPC calls
       if (addr && /^0x[0-9a-fA-F]{40}$/.test(addr)) {
+        diagnostics.logSessionEvent("Custom walletConnected event", {
+          address: addr.slice(0, 10),
+        });
         // CRITICAL: Clear swap history when new wallet connects (might be different user)
         setSwapHistory([]);
         try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}

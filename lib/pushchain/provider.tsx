@@ -1,5 +1,5 @@
 "use client";
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
   PushUniversalWalletProvider,
   usePushWalletContext,
@@ -9,6 +9,7 @@ import {
 import { WagmiProvider } from "wagmi";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { wagmiConfig } from "./wagmi-config";
+import { diagnostics } from "@/lib/diagnostics";
 
 export { usePushWalletContext, usePushChainClient, PushUI };
 
@@ -53,6 +54,51 @@ export function usePushWallet() {
   const address =
     uea ||
     (isEvmOrigin && looksLikeEvmHex(origin) ? origin : null);
+
+  // ═══ DIAGNOSTICS: Track wallet state transitions ═══
+  const prevConnected = useRef(false);
+  const prevClient = useRef<any>(null);
+  const prevAddress = useRef<string | null>(null);
+
+  useEffect(() => {
+    // Log connection state change
+    if (isConnected && !prevConnected.current) {
+      diagnostics.logConnected();
+    } else if (!isConnected && prevConnected.current) {
+      diagnostics.logDisconnect();
+    }
+    prevConnected.current = isConnected;
+  }, [isConnected]);
+
+  useEffect(() => {
+    // Log when pushChainClient becomes available
+    if (pushChainClient && !prevClient.current) {
+      diagnostics.logPushChainClientReady(pushChainClient);
+    }
+    prevClient.current = pushChainClient;
+  }, [pushChainClient]);
+
+  useEffect(() => {
+    // Log when address is resolved
+    if (address && address !== prevAddress.current) {
+      diagnostics.logAddressResolved(address, origin);
+    }
+    prevAddress.current = address;
+  }, [address, origin]);
+
+  // Periodic invariant check (every 10s while connected)
+  useEffect(() => {
+    if (!isConnected) return;
+    const interval = setInterval(() => {
+      diagnostics.checkWalletInvariants({
+        isConnected,
+        address,
+        pushChainClient,
+        originChain: originChainRaw,
+      });
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [isConnected, address, pushChainClient, originChainRaw]);
 
   return {
     address,           // UEA — use this for on-chain operations

@@ -7,6 +7,7 @@ import { relayClient } from "@/lib/relay/client";
 import { getWalletClient } from "@/lib/wallet/walletClient";
 import type { RelayCurrency, RelayChain } from "@/lib/relay/api";
 import { usePushWallet } from "@/lib/pushchain/provider";
+import { diagnostics } from "@/lib/diagnostics";
 
 // Extract tx hash from PushChain SDK response (may be Object)
 const extractHash = (result: any): string => {
@@ -230,6 +231,17 @@ export const SwapPage = ({
     setExecutionError(null);
     setTxHashes([]);
     setCurrentStep(null);
+
+    const swapStartTime = Date.now();
+
+    // ═══ DIAGNOSTICS: Log swap attempt with wallet state ═══
+    diagnostics.logSwapAttempt({
+      isConnected: pushWallet.isConnected,
+      hasAddress: !!pushWallet.address,
+      hasPushChainClient: !!pushWallet.pushChainClient,
+      hasUniversal: !!(pushWallet.pushChainClient as any)?.universal,
+      originChain: (pushWallet as any)?.originChain || null,
+    });
 
     try {
       // ═══ PRE-FLIGHT: Phantom cluster check ═══════════════════════════
@@ -631,8 +643,21 @@ export const SwapPage = ({
       });
 
       if (!swapResult.success || !swapResult.txHash) {
+        // Log failed swap
+        diagnostics.logSwapResult({
+          success: false,
+          error: swapResult.error || "Swap failed",
+          durationMs: Date.now() - swapStartTime,
+        });
         throw new Error(swapResult.error || "Swap transaction failed or was rejected");
       }
+
+      // ═══ DIAGNOSTICS: Log successful swap ═══
+      diagnostics.logSwapResult({
+        success: true,
+        txHash: swapResult.txHash,
+        durationMs: Date.now() - swapStartTime,
+      });
 
       setCurrentStep("Swap complete!");
       finalTxHashes = [swapResult.txHash];
@@ -695,8 +720,18 @@ export const SwapPage = ({
         txHashes: finalTxHashes.length > 0 ? finalTxHashes : txHashes,
       });
     } catch (error: any) {
-      // eslint-disable-next-line no-console
+      // ═══ DIAGNOSTICS: Analyze and log error ═══
+      const analysis = diagnostics.analyzeError(error);
       console.error("Swap execution error:", error);
+      console.log("[MoleSwap:Diagnostics] Error analysis:", analysis);
+
+      // Log swap failure with timing
+      diagnostics.logSwapResult({
+        success: false,
+        error: `[${analysis.category}] ${error?.message || "Unknown error"}`,
+        durationMs: Date.now() - swapStartTime,
+      });
+
       setExecutionError(error?.message || "Failed to execute swap");
       setIsExecuting(false);
       setIsCompleted(false);
