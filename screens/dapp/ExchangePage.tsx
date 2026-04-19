@@ -207,6 +207,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       if (eth?.on) {
         const onAccountsChanged = (accounts: string[]) => {
           const first = accounts?.[0];
+          // CRITICAL: Clear swap history when wallet changes to prevent cross-wallet data leakage
+          setSwapHistory([]);
+          try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}
+
           if (isEvmAddress(first)) {
             setWalletAddress(first);
             setRecipientAddress(first); // Update recipient when wallet changes
@@ -246,6 +250,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
           // Listen for account changes from WalletConnect
           provider.on("accountsChanged", (accounts: string[]) => {
             const first = accounts?.[0];
+            // CRITICAL: Clear swap history when wallet changes to prevent cross-wallet data leakage
+            setSwapHistory([]);
+            try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}
+
             if (isEvmAddr(first)) {
               setWalletAddress(first);
               setRecipientAddress(first);
@@ -263,6 +271,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
             setRecipientAddress(null);
             setShowReceive(false);
             setFromTokenBalance(null);
+            // CRITICAL: Clear swap history on disconnect
+            setSwapHistory([]);
+            try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}
           });
 
           // Listen for chain changes
@@ -294,6 +305,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       setRecipientAddress(null);
       setShowReceive(false);
       setFromTokenBalance(null);
+      // CRITICAL: Clear swap history on disconnect
+      setSwapHistory([]);
+      try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}
     };
 
     window.addEventListener("walletDisconnected", handleWalletDisconnect);
@@ -309,6 +323,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       const addr = customEvent.detail?.address;
       // Same hex guard — reject non-EVM addresses that would break Push RPC calls
       if (addr && /^0x[0-9a-fA-F]{40}$/.test(addr)) {
+        // CRITICAL: Clear swap history when new wallet connects (might be different user)
+        setSwapHistory([]);
+        try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}
+
         setWalletAddress(addr);
         setRecipientAddress(addr);
         setShowReceive(true);

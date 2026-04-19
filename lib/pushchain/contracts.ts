@@ -16,6 +16,13 @@ export const CONTRACTS = {
   // ═══ MOLESWAP CUSTOM CONTRACTS ═══
   MOLESWAP_FEE_ROUTER: "0x2845d303d9C367bF9ad555b0de81945E02861adD",
   MOLESWAP_LIQUIDITY_PROXY: "0xE41F22796C076157688047ACBe9665CDE740A98e",
+  /**
+   * MoleSwapBridgeHelper — atomic bridge+swap for Solana users (1-sig UX).
+   * Solves Solana's 1232-byte tx buffer limit by combining wrap+approve+swap
+   * into a single function call.
+   * Deployed: 2026-04-19 | Tx: 0x3cc43cd371545e082715be1b00f3a734e70acb4c2cf7033f7b53562998931379
+   */
+  MOLESWAP_BRIDGE_HELPER: "0x7db2Bdc454C62354C660a673B317D6945065cd0c",
 } as const;
 
 // ═══ PRC-20 TOKENS ON PUSH CHAIN ═══
@@ -254,6 +261,18 @@ export const WPC_ABI = [
   "function approve(address, uint256) returns (bool)",
   "function allowance(address, address) view returns (uint256)",
   "function transfer(address, uint256) returns (bool)",
+] as const;
+
+// ═══ MoleSwapBridgeHelper ABI (1-sig Solana swaps) ═══
+export const BRIDGE_HELPER_ABI = [
+  // Single-hop: bridge + swap in one call
+  "function bridgeAndSwap(address tokenIn, address tokenOut, uint24 poolFee, uint256 amountIn, uint256 amountOutMin, address recipient, uint256 deadline) returns (uint256 amountOut)",
+  // Multi-hop: bridge + swap through WPC hub
+  "function bridgeAndSwapMultiHop(address tokenIn, address tokenOut, bytes path, uint256 amountIn, uint256 amountOutMin, address recipient, uint256 deadline) returns (uint256 amountOut)",
+  // Native bridge: wrap PC + swap
+  "function bridgeNativeAndSwap(address tokenOut, uint24 poolFee, uint256 amountOutMin, address recipient, uint256 deadline) payable returns (uint256 amountOut)",
+  // Bridge + swap to native PC
+  "function bridgeAndSwapToNative(address tokenIn, uint24 poolFee, uint256 amountIn, uint256 amountOutMin, address recipient, uint256 deadline) returns (uint256 amountOut)",
 ] as const;
 
 // ═══ Tick math constants ═══

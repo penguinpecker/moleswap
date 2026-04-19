@@ -32,3 +32,8 @@ Thumbs.db
 
 # Lock files (use npm)
 bun.lock
+
+# Foundry build artifacts
+cache/
+artifacts/
+out/

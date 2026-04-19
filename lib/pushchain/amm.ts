@@ -7,6 +7,7 @@ import {
   CONTRACTS, TOKENS, POOLS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
   QUOTER_V2_ABI, SWAP_ROUTER_ABI, ERC20_ABI, POOL_ABI,
   POSITION_MANAGER_ABI, WPC_ABI, FEE_ROUTER_ABI, LIQUIDITY_PROXY_ABI,
+  BRIDGE_HELPER_ABI,
   TICK_SPACINGS, MIN_TICK, MAX_TICK,
   getTokenByAddress, findPool, getSwappableTokens,
   type TokenInfo, type PoolInfo,
@@ -68,6 +69,14 @@ export const MULTICALL_TARGET_ADDRESS = "0x0000000000000000000000000000000000000
 // RamenFi constants lifted from their bundle (MULTICALL_SELECTOR, etc.)
 export const MULTICALL_SELECTOR = "0x1749e1e3" as const;
 export const UEA_MULTICALL_SELECTOR = "0x2cc2842d" as const;
+
+// ─── BRIDGE HELPER (Solana 1-sig optimization) ───────────────────────────────
+// When deployed, this contract enables 1-signature swaps for Solana users by
+// combining wrap+approve+swap into a single function call that fits in Solana's
+// 1232-byte tx buffer. Similar to RamenFi's depositPRC20WithAutoSwap (0x780ad827).
+const BRIDGE_HELPER_DEPLOYED =
+  CONTRACTS.MOLESWAP_BRIDGE_HELPER !== "0x0000000000000000000000000000000000000000";
+const bridgeHelperIface = new ethers.Interface(BRIDGE_HELPER_ABI);
 export const MIGRATION_SELECTOR = "0xcac656d6" as const;
 
 // Push Chain Donut testnet chain namespaces we treat as "Push-native origin".
@@ -159,6 +168,66 @@ export interface ExecuteStepsParams {
   pollPushReceipt?: (hash: string) => Promise<void>; // injected: polls Push Chain RPC for confirmation
 }
 
+// ─── executeStepsSequential (fallback for Push-native and Solana w/o helper) ─
+// Extracted helper for the sequential N-sig path. Used when:
+//   • Push-native origins (SDK limit: no batch-inbound for native EOAs)
+//   • Solana origins without MoleSwapBridgeHelper deployed
+async function executeStepsSequential(
+  pushChainClient: any,
+  userAddress: string,
+  steps: (BridgeStep | SwapStepCall)[],
+  originChain: string | null | undefined,
+  onStep: (stepIndex: number, label: string, status: "signing" | "confirmed" | "error") => void,
+  pollReceipt?: (txHash: string) => Promise<void>,
+): Promise<ExecuteStepsResult> {
+  const isSolanaOrigin = !!originChain && originChain.toLowerCase().startsWith("solana:");
+  let finalTxHash: string | null = null;
+
+  try {
+    const firstStep = steps[0];
+    const bridgeStep: BridgeStep | null =
+      firstStep?.type === "bridge" ? (firstStep as BridgeStep) : null;
+
+    // Send bridge step first (Solana origin only — push-native skips)
+    if (bridgeStep && isSolanaOrigin) {
+      onStep(0, "Bridge funds", "signing");
+      const funds = { amount: BigInt(bridgeStep.amount), token: bridgeStep.token };
+      const tx = await pushChainClient.universal.sendTransaction({
+        to: userAddress,
+        funds,
+      });
+      finalTxHash = extractTxHash(tx);
+      onStep(0, "Bridge funds", "confirmed");
+      if (pollReceipt) await pollReceipt(finalTxHash);
+    }
+
+    // Then loop swap steps sequentially
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      if (!isSwapStep(step)) continue;
+      const swapStep = step as SwapStepCall;
+      const label = swapStep.label || `Step ${i + 1}`;
+      onStep(i, label, "signing");
+
+      const tx = await pushChainClient.universal.sendTransaction({
+        to: swapStep.to,
+        value: BigInt(swapStep.value),
+        data: swapStep.data,
+      });
+      finalTxHash = extractTxHash(tx);
+      onStep(i, label, "confirmed");
+      if (pollReceipt) await pollReceipt(finalTxHash);
+    }
+
+    return finalTxHash
+      ? { success: true, txHash: finalTxHash }
+      : { success: false, error: "No transaction was executed" };
+  } catch (err: any) {
+    onStep(-1, err?.message || String(err), "error");
+    return { success: false, error: getContractErrorMessage(err) };
+  }
+}
+
 // ─── executeSteps(params) (RamenFi: sE — THE MASTER ORCHESTRATOR) ──────────
 // This function is a direct clone of RamenFi's `sE`. It decides between 4
 // execution strategies based on origin chain and step composition:
@@ -200,17 +269,13 @@ export async function executeSteps(
   // + swap) with ABI-encoded calldata routinely blows past this limit,
   // producing: "RangeError: encoding overruns Buffer" at rZ.instruction.
   //
-  // RamenFi avoids this by using their proprietary depositPRC20WithAutoSwap
-  // contract (selector 0x780ad827) — a SINGLE on-chain function that does
-  // wrap+approve+swap atomically. Their multicall therefore only contains
-  // one call, which fits in the Solana tx buffer.
+  // SOLUTION: MoleSwapBridgeHelper contract combines wrap+approve+swap into
+  // a SINGLE function call that fits in the Solana tx buffer. When deployed,
+  // Solana users get 1-sig UX matching RamenFi's depositPRC20WithAutoSwap.
   //
-  // Until MoleSwap deploys a similar helper contract, we fall back to
-  // sequential sends for Solana origins. This means Phantom users pay N
-  // sigs (was the pre-multicall behavior) but the swap actually works.
-  // For EVM cross-chain origins (MM-Sepolia, MM-Arbitrum, etc.) we keep
-  // the multicall path — their tx-size limits are much larger.
+  // Fallback (helper not deployed): sequential sends (N sigs but works).
   const isSolanaOrigin = !!originChain && originChain.toLowerCase().startsWith("solana:");
+  const useSolanaHelper = isSolanaOrigin && BRIDGE_HELPER_DEPLOYED;
   const useMulticall = isCrossChain && !isSolanaOrigin;
 
   try {
@@ -281,27 +346,71 @@ export async function executeSteps(
         onStep(0, label, "confirmed");
         if (pollReceipt) await pollReceipt(finalTxHash);
       }
-    } else {
-      // ─── SEQUENTIAL PATH — one sig per step ───────────────────────────
-      // Used for:
-      //   • Push-native origins (SDK limit: no batch-inbound for native EOAs)
-      //   • Solana origins (tx-size limit prevents multi-call encoding)
-      //
-      // RamenFi for push-native: for(let r of n){if(!sC(r))continue;...}
-      //
-      // For Solana origin with a bridge step, we send the bridge FIRST
-      // (as a funds transfer to the UEA), then execute each swap step
-      // individually. This produces N sigs but each one fits inside
-      // Solana's 1232-byte tx buffer.
-      //
-      // For Push-native: bridge steps are skipped (user already has tokens
-      // on Push Chain; nothing to bridge).
+    } else if (useSolanaHelper) {
+      // ─── SOLANA HELPER PATH — 1 sig via MoleSwapBridgeHelper ───────────
+      // When the helper contract is deployed, we route bridge+swap through
+      // a single `bridgeAndSwap` call that fits in Solana's 1232-byte buffer.
+      // Gateway mints bridged tokens TO the helper, which immediately swaps.
       const firstStep = steps[0];
+      const swapSteps = steps.filter(isSwapStep) as SwapStepCall[];
       const bridgeStep: BridgeStep | null =
         firstStep?.type === "bridge" ? (firstStep as BridgeStep) : null;
 
-      // Send bridge step first (Solana origin only — push-native skips)
-      if (bridgeStep && isSolanaOrigin) {
+      if (bridgeStep && swapSteps.length > 0) {
+        // Bridge + swap(s) via helper — 1 SIGNATURE! 🎉
+        const combinedLabel = swapSteps.length === 1
+          ? "Bridge & swap (1-sig)"
+          : `Bridge & ${swapSteps.length}-hop swap (1-sig)`;
+        onStep(0, combinedLabel, "signing");
+
+        // Extract swap parameters from the first swap step
+        // The helper's bridgeAndSwap matches FeeRouter's swapExactInputSingle signature
+        const swapData = swapSteps[0].data;
+        const feeRouterIface = new ethers.Interface(FEE_ROUTER_ABI);
+        let helperCalldata: string;
+
+        try {
+          // Decode FeeRouter.swapExactInputSingle call to extract params
+          const decoded = feeRouterIface.parseTransaction({ data: swapData });
+          if (decoded && decoded.name === "swapExactInputSingle") {
+            const [tokenIn, tokenOut, poolFee, amountIn, amountOutMin, deadline] = decoded.args;
+            // Encode bridgeAndSwap call for the helper
+            helperCalldata = bridgeHelperIface.encodeFunctionData("bridgeAndSwap", [
+              tokenIn,
+              tokenOut,
+              poolFee,
+              amountIn,
+              amountOutMin,
+              userAddress, // recipient
+              deadline,
+            ]);
+          } else {
+            // Multi-hop: use bridgeAndSwapMultiHop
+            // For now, fall through to sequential path
+            throw new Error("Multi-hop helper not yet encoded");
+          }
+        } catch {
+          // Fallback to sequential if decoding fails
+          console.warn("[MoleSwap] Helper encoding failed, falling back to sequential");
+          // Re-run as sequential (recursive call with helper disabled)
+          const sequentialResult = await executeStepsSequential(
+            pushChainClient, userAddress, steps, originChain, onStep, pollReceipt
+          );
+          return sequentialResult;
+        }
+
+        // Send via helper: gateway mints TO helper, helper swaps
+        const funds = { amount: BigInt(bridgeStep.amount), token: bridgeStep.token };
+        const tx = await pushChainClient.universal.sendTransaction({
+          to: CONTRACTS.MOLESWAP_BRIDGE_HELPER,
+          funds,
+          data: helperCalldata,
+        });
+        finalTxHash = extractTxHash(tx);
+        onStep(0, combinedLabel, "confirmed");
+        if (pollReceipt) await pollReceipt(finalTxHash);
+      } else if (bridgeStep) {
+        // Bridge only — same as multicall Case A
         onStep(0, "Bridge funds", "signing");
         const funds = { amount: BigInt(bridgeStep.amount), token: bridgeStep.token };
         const tx = await pushChainClient.universal.sendTransaction({
@@ -311,25 +420,22 @@ export async function executeSteps(
         finalTxHash = extractTxHash(tx);
         onStep(0, "Bridge funds", "confirmed");
         if (pollReceipt) await pollReceipt(finalTxHash);
+      } else {
+        // Swaps only, no bridge — still sequential for safety
+        const sequentialResult = await executeStepsSequential(
+          pushChainClient, userAddress, steps, originChain, onStep, pollReceipt
+        );
+        return sequentialResult;
       }
-
-      // Then loop swap steps sequentially
-      for (let i = 0; i < steps.length; i++) {
-        const step = steps[i];
-        if (!isSwapStep(step)) continue;
-        const swapStep = step as SwapStepCall;
-        const label = swapStep.label || `Step ${i + 1}`;
-        onStep(i, label, "signing");
-
-        const tx = await pushChainClient.universal.sendTransaction({
-          to: swapStep.to,
-          value: BigInt(swapStep.value),
-          data: swapStep.data,
-        });
-        finalTxHash = extractTxHash(tx);
-        onStep(i, label, "confirmed");
-        if (pollReceipt) await pollReceipt(finalTxHash);
-      }
+    } else {
+      // ─── SEQUENTIAL PATH — one sig per step ───────────────────────────
+      // Used for:
+      //   • Push-native origins (SDK limit: no batch-inbound for native EOAs)
+      //   • Solana origins WITHOUT helper deployed (fallback)
+      const sequentialResult = await executeStepsSequential(
+        pushChainClient, userAddress, steps, originChain, onStep, pollReceipt
+      );
+      return sequentialResult;
     }
 
     return finalTxHash
