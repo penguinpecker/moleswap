@@ -271,10 +271,24 @@ export function analyzeError(error: any): {
     };
   }
 
-  if (msg.includes("insufficient") || msg.includes("balance")) {
+  if (msg.includes("insufficient") || msg.includes("have 0 want") || (msg.includes("balance") && msg.includes("exceed"))) {
+    // Extract amounts if available from viem error format
+    const haveWantMatch = msg.match(/have (\d+) want (\d+)/);
+    let suggestion = "Not enough tokens for this transaction.";
+    if (haveWantMatch) {
+      const have = BigInt(haveWantMatch[1]);
+      const want = BigInt(haveWantMatch[2]);
+      const wantEth = Number(want) / 1e18;
+      if (have === 0n) {
+        suggestion = `Your Push Chain account has 0 balance. You need ~${wantEth.toFixed(6)} PC to complete this swap. Bridge funds to Push Chain first.`;
+      } else {
+        const haveEth = Number(have) / 1e18;
+        suggestion = `Insufficient balance. You have ${haveEth.toFixed(6)} PC but need ~${wantEth.toFixed(6)} PC.`;
+      }
+    }
     return {
       category: "INSUFFICIENT_BALANCE",
-      suggestion: "Not enough tokens for this transaction.",
+      suggestion,
       isRetryable: false,
     };
   }

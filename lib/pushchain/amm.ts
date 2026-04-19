@@ -33,6 +33,49 @@ export type Pool = PoolInfo;
 
 export const PUSHCHAIN_TOKENS = TOKENS;
 
+// ═══ BALANCE CHECK HELPERS ═══
+
+/**
+ * Get native PC balance for an address on Push Chain.
+ * Used for pre-flight checks before wrap/swap operations.
+ */
+async function getNativeBalance(address: string): Promise<bigint> {
+  try {
+    const provider = new ethers.JsonRpcProvider(PUSHCHAIN_RPC);
+    const balance = await provider.getBalance(address);
+    return balance;
+  } catch (e) {
+    console.warn("[MoleSwap] Failed to fetch native balance:", e);
+    return 0n;
+  }
+}
+
+/**
+ * Get ERC20 token balance for an address.
+ */
+async function getTokenBalance(tokenAddress: string, userAddress: string): Promise<bigint> {
+  try {
+    const provider = new ethers.JsonRpcProvider(PUSHCHAIN_RPC);
+    const token = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+    const balance = await token.balanceOf(userAddress);
+    return BigInt(balance.toString());
+  } catch (e) {
+    console.warn("[MoleSwap] Failed to fetch token balance:", e);
+    return 0n;
+  }
+}
+
+/**
+ * Format a bigint wei value to human-readable string.
+ */
+function formatBalance(wei: bigint, decimals: number = 18): string {
+  const divisor = 10n ** BigInt(decimals);
+  const whole = wei / divisor;
+  const frac = wei % divisor;
+  const fracStr = frac.toString().padStart(decimals, '0').slice(0, 6);
+  return `${whole}.${fracStr}`.replace(/\.?0+$/, '') || '0';
+}
+
 export interface SwapQuote {
   amountIn: string;
   amountOut: string;
@@ -952,6 +995,37 @@ export async function executeSwap(params: {
     // Short-circuit: WRAP (native PC → WPC)
     const isWrap = isNativeIn && actualOut.toLowerCase() === CONTRACTS.WPC.toLowerCase();
     if (isWrap) {
+      // Pre-flight balance check: user must have enough native PC
+      const nativeBalance = await getNativeBalance(params.recipient);
+      // Need amountIn + some gas buffer (~0.001 PC = 1e15 wei)
+      const gasBuffer = BigInt("1000000000000000"); // 0.001 PC
+      const required = amountIn + gasBuffer;
+
+      if (nativeBalance < required) {
+        const haveStr = formatBalance(nativeBalance);
+        const needStr = formatBalance(amountIn);
+
+        // Determine if user is on external chain
+        const originChain = params.originChain || null;
+        const isPushNative = !originChain ||
+          originChain === "eip155:42101" ||
+          originChain === "eip155:9001";
+
+        let errMsg: string;
+        if (nativeBalance === 0n && !isPushNative) {
+          // User is on external chain with 0 PC — explain they need to bridge first
+          errMsg = `Your Push Chain account has 0 PC. Native PC cannot be bridged from other chains. ` +
+            `To get PC: 1) Bridge ETH/SOL to Push Chain first (select pETH or pSOL), ` +
+            `2) Swap your bridged asset for PC, then 3) You can wrap PC to WPC.`;
+        } else {
+          errMsg = `Insufficient PC balance. You have ${haveStr} PC but need ${needStr} PC (plus gas).`;
+        }
+
+        console.error("[MoleSwap] Wrap pre-flight failed:", errMsg);
+        onStep(-1, errMsg, "error");
+        return { txHash: "", success: false, error: errMsg };
+      }
+
       const wpcIface = new ethers.Interface(["function deposit() payable"]);
       const data = wpcIface.encodeFunctionData("deposit");
       const steps: SwapStep[] = [

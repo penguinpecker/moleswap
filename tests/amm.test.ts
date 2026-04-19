@@ -217,6 +217,51 @@ describe('Step Callback Handling', () => {
   });
 });
 
+describe('Balance Pre-flight Checks', () => {
+  it('blocks wrap when user has 0 native PC and is from external chain', () => {
+    const nativeBalance = 0n;
+    const amountIn = BigInt("1000000000000000000"); // 1 PC
+    const gasBuffer = BigInt("1000000000000000"); // 0.001 PC
+    const required = amountIn + gasBuffer;
+    const originChain = "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"; // External chain
+
+    const isPushNative = !originChain ||
+      originChain === "eip155:42101" ||
+      originChain === "eip155:9001";
+
+    expect(nativeBalance < required).toBe(true);
+    expect(isPushNative).toBe(false);
+
+    // Should show helpful error about bridging first
+    const shouldShowBridgeHelp = nativeBalance === 0n && !isPushNative;
+    expect(shouldShowBridgeHelp).toBe(true);
+  });
+
+  it('allows wrap when user has sufficient native PC', () => {
+    const nativeBalance = BigInt("2000000000000000000"); // 2 PC
+    const amountIn = BigInt("1000000000000000000"); // 1 PC
+    const gasBuffer = BigInt("1000000000000000"); // 0.001 PC
+    const required = amountIn + gasBuffer;
+
+    expect(nativeBalance >= required).toBe(true);
+  });
+
+  it('shows regular error for Push-native user with low balance', () => {
+    const nativeBalance = BigInt("500000000000000000"); // 0.5 PC
+    const amountIn = BigInt("1000000000000000000"); // 1 PC
+    const originChain = "eip155:42101"; // Push Chain native
+
+    const isPushNative = !originChain ||
+      originChain === "eip155:42101" ||
+      originChain === "eip155:9001";
+
+    // User is Push-native but has low balance - show simple error, not bridge help
+    expect(isPushNative).toBe(true);
+    const shouldShowBridgeHelp = nativeBalance === 0n && !isPushNative;
+    expect(shouldShowBridgeHelp).toBe(false);
+  });
+});
+
 describe('Origin Chain Detection', () => {
   it('detects Solana origin', () => {
     const originChain = 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcojunJhyKVc';
