@@ -304,6 +304,16 @@ export const SwapPage = ({
         throw new Error("No wallet available. Please connect your wallet.");
       }
 
+      // Ensure PushChain SDK client is fully initialized before swapping.
+      // The client may be null during the brief window between wallet connect
+      // and SDK initialization. User sees "Cannot read property 'universal'"
+      // if we proceed without this guard.
+      if (pushWallet.isConnected && !pushWallet.pushChainClient) {
+        throw new Error(
+          "PushChain wallet is still initializing. Please wait a moment and try again."
+        );
+      }
+
       // Get the current account - prefer PushChain universal account
       const currentAddress = pushWallet.address || (wallet ? (await wallet.getAddresses())?.[0] : null);
 
@@ -931,15 +941,17 @@ export const SwapPage = ({
           {/* Start Swapping Button */}
           <button
             onClick={handleStartSwapping}
-            disabled={isExecuting || !swapData.quote}
+            disabled={isExecuting || !swapData.quote || (pushWallet.isConnected && !pushWallet.pushChainClient)}
             className="relative w-full cursor-pointer rounded py-4 text-xl font-bold text-white transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span>
-              {isExecuting
-                ? currentStep || "SWAPPING..."
-                : needsApproval
-                  ? "APPROVE"
-                  : "START SWAPPING"}
+              {pushWallet.isConnected && !pushWallet.pushChainClient
+                ? "INITIALIZING..."
+                : isExecuting
+                  ? currentStep || "SWAPPING..."
+                  : needsApproval
+                    ? "APPROVE"
+                    : "START SWAPPING"}
             </span>
             <Image
               src="/dapp/connect-wallet.png"

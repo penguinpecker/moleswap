@@ -926,6 +926,16 @@ export async function executeSwap(params: {
 }): Promise<{ txHash: string; success: boolean; error?: string }> {
   const onStep = params.onStep || (() => {});
   try {
+    // Guard: pushChainClient must be initialized before we can execute swaps.
+    // This catches the race condition where the UI allows swap initiation before
+    // the SDK has fully connected (pushChainClient is null → "Cannot read 'universal'").
+    if (!params.pushChainClient) {
+      const errMsg = "PushChain client not initialized. Please reconnect your wallet.";
+      console.error("[MoleSwap] executeSwap called with null pushChainClient");
+      onStep(-1, errMsg, "error");
+      return { txHash: "", success: false, error: errMsg };
+    }
+
     // Wrap the client with RamenFi's guarded proxy (upgrade check before every send).
     // This is idempotent — if already guarded, the inner sendTransaction still fires once.
     const client = createGuardedPushChainClient(params.pushChainClient);
