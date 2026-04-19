@@ -26,6 +26,10 @@ jobs:
 
       - name: Run tests
         run: npm run test
+        env:
+          # Dummy values for build - not used at runtime
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
 
       # Lint temporarily disabled due to Next.js 15 + ESLint 9 compatibility issues
       # TODO: Fix when next lint is updated or migrate to eslint CLI
@@ -34,6 +38,10 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          # Dummy values for build - not used at runtime
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
 
   # Block merge if tests or build fail
   required-checks:
