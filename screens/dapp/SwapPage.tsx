@@ -356,30 +356,105 @@ export const SwapPage = ({
         try {
           const currentChainId = await wallet.getChainId();
           if (currentChainId !== expectedChainId) {
+            console.log(`[MoleSwap] Chain mismatch: wallet on ${currentChainId}, need ${expectedChainId}. Auto-switching...`);
+
+            // Chain configurations for auto-add (all supported chains)
+            const chainConfigs: Record<number, any> = {
+              // Push Chain Devnet
+              42101: {
+                chainId: "0xa475",
+                chainName: "Push Chain Devnet",
+                nativeCurrency: { name: "Push Chain", symbol: "PC", decimals: 18 },
+                rpcUrls: ["https://rpc.push.org"],
+                blockExplorerUrls: ["https://explorer.push.org"],
+              },
+              // Ethereum Sepolia
+              11155111: {
+                chainId: "0xaa36a7",
+                chainName: "Sepolia",
+                nativeCurrency: { name: "Sepolia ETH", symbol: "ETH", decimals: 18 },
+                rpcUrls: ["https://rpc.sepolia.org", "https://ethereum-sepolia.publicnode.com"],
+                blockExplorerUrls: ["https://sepolia.etherscan.io"],
+              },
+              // Arbitrum Sepolia
+              421614: {
+                chainId: "0x66eee",
+                chainName: "Arbitrum Sepolia",
+                nativeCurrency: { name: "Arbitrum ETH", symbol: "ETH", decimals: 18 },
+                rpcUrls: ["https://sepolia-rollup.arbitrum.io/rpc", "https://arbitrum-sepolia.publicnode.com"],
+                blockExplorerUrls: ["https://sepolia.arbiscan.io"],
+              },
+              // Base Sepolia
+              84532: {
+                chainId: "0x14a34",
+                chainName: "Base Sepolia",
+                nativeCurrency: { name: "Base ETH", symbol: "ETH", decimals: 18 },
+                rpcUrls: ["https://sepolia.base.org", "https://base-sepolia.publicnode.com"],
+                blockExplorerUrls: ["https://sepolia.basescan.org"],
+              },
+              // BNB Testnet
+              97: {
+                chainId: "0x61",
+                chainName: "BNB Smart Chain Testnet",
+                nativeCurrency: { name: "tBNB", symbol: "tBNB", decimals: 18 },
+                rpcUrls: ["https://data-seed-prebsc-1-s1.binance.org:8545", "https://bsc-testnet.publicnode.com"],
+                blockExplorerUrls: ["https://testnet.bscscan.com"],
+              },
+              // Ethereum Mainnet (for reference)
+              1: {
+                chainId: "0x1",
+                chainName: "Ethereum Mainnet",
+                nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+                rpcUrls: ["https://eth.llamarpc.com", "https://ethereum.publicnode.com"],
+                blockExplorerUrls: ["https://etherscan.io"],
+              },
+            };
+
             // Try to switch chain
             try {
               await wallet.switchChain({ id: expectedChainId });
-              // Wait a moment for chain switch to complete
               await new Promise((resolve) => setTimeout(resolve, 1000));
             } catch (switchError: any) {
-              // If switch fails, try to add chain first (for testnets/new chains)
+              // If chain not recognized, try to add it first
               if (
                 switchError?.code === 4902 ||
-                switchError?.message?.includes("Unrecognized chain")
+                switchError?.message?.includes("Unrecognized chain") ||
+                switchError?.message?.includes("wallet_addEthereumChain")
               ) {
+                const chainConfig = chainConfigs[expectedChainId];
+                if (chainConfig && window.ethereum) {
+                  try {
+                    console.log(`[MoleSwap] Chain ${expectedChainId} not found. Adding...`);
+                    await window.ethereum.request({
+                      method: "wallet_addEthereumChain",
+                      params: [chainConfig],
+                    });
+                    // After adding, try to switch again
+                    await wallet.switchChain({ id: expectedChainId });
+                    await new Promise((resolve) => setTimeout(resolve, 1000));
+                  } catch (addError: any) {
+                    console.error("[MoleSwap] Failed to add chain:", addError);
+                    throw new Error(
+                      `Could not add ${chainConfig.chainName} to your wallet. Please add it manually.`
+                    );
+                  }
+                } else {
+                  throw new Error(
+                    `Please add chain ${expectedChainId} (${swapData.fromChain?.displayName || swapData.fromChain?.name || "Unknown"}) to your wallet manually.`
+                  );
+                }
+              } else {
                 throw new Error(
-                  `Please switch your wallet to chain ${expectedChainId} (${swapData.fromChain?.displayName || swapData.fromChain?.name || "Unknown"}) manually.`,
+                  `Failed to switch to chain ${expectedChainId}: ${switchError?.message || "Unknown error"}`
                 );
               }
-              throw new Error(
-                `Failed to switch to chain ${expectedChainId}: ${switchError?.message || "Unknown error"}`,
-              );
             }
+            console.log(`[MoleSwap] Successfully switched to chain ${expectedChainId}`);
           }
         } catch (chainError: any) {
           if (!pushWallet.isConnected) {
             throw new Error(
-              `Chain mismatch. Please ensure your wallet is connected to ${swapData.fromChain?.displayName || swapData.fromChain?.name || `chain ${expectedChainId}`}. ${chainError?.message || ""}`,
+              `Chain switch failed: ${chainError?.message || "Unknown error"}. Please switch to ${swapData.fromChain?.displayName || swapData.fromChain?.name || `chain ${expectedChainId}`} manually.`
             );
           }
           // PushChain wallet connected — skip chain check

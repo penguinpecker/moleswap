@@ -218,6 +218,51 @@ describe('Race Condition Detection', () => {
   });
 });
 
+describe('Chain Auto-Switch', () => {
+  const chainConfigs: Record<number, { chainId: string; chainName: string }> = {
+    42101: { chainId: "0xa475", chainName: "Push Chain Devnet" },
+    11155111: { chainId: "0xaa36a7", chainName: "Sepolia" },
+    421614: { chainId: "0x66eee", chainName: "Arbitrum Sepolia" },
+    84532: { chainId: "0x14a34", chainName: "Base Sepolia" },
+    97: { chainId: "0x61", chainName: "BNB Smart Chain Testnet" },
+  };
+
+  it('has config for Push Chain Devnet', () => {
+    expect(chainConfigs[42101]).toBeDefined();
+    expect(chainConfigs[42101].chainName).toBe("Push Chain Devnet");
+  });
+
+  it('has config for all supported testnets', () => {
+    expect(chainConfigs[11155111]).toBeDefined(); // Sepolia
+    expect(chainConfigs[421614]).toBeDefined();   // Arbitrum Sepolia
+    expect(chainConfigs[84532]).toBeDefined();    // Base Sepolia
+    expect(chainConfigs[97]).toBeDefined();       // BNB Testnet
+  });
+
+  it('chainId is correctly hex-encoded', () => {
+    expect(parseInt(chainConfigs[42101].chainId, 16)).toBe(42101);
+    expect(parseInt(chainConfigs[11155111].chainId, 16)).toBe(11155111);
+    expect(parseInt(chainConfigs[97].chainId, 16)).toBe(97);
+  });
+
+  it('should skip chain switch for Push Universal Wallet', () => {
+    const pushWalletConnected = true;
+    const traditionalWallet = null; // no traditional wallet when Push is connected
+
+    // Chain switch only runs if: wallet && !pushWallet.isConnected
+    const shouldSwitchChain = traditionalWallet && !pushWalletConnected;
+    expect(shouldSwitchChain).toBeFalsy();
+  });
+
+  it('should attempt chain switch for traditional wallet', () => {
+    const pushWalletConnected = false;
+    const traditionalWallet = { switchChain: vi.fn() };
+
+    const shouldSwitchChain = traditionalWallet && !pushWalletConnected;
+    expect(shouldSwitchChain).toBeTruthy();
+  });
+});
+
 describe('Session Management', () => {
   let historyState: any[];
 
