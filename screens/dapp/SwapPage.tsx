@@ -221,8 +221,23 @@ export const SwapPage = ({
   };
 
   const handleStartSwapping = async () => {
+    // Guard 1: Check quote
     if (!swapData.quote) {
       setExecutionError("No quote available");
+      return;
+    }
+
+    // Guard 2: Check wallet connection
+    if (!pushWallet.isConnected) {
+      setExecutionError("Wallet not connected. Please connect your wallet first.");
+      diagnostics.logSessionEvent("Swap blocked - wallet not connected");
+      return;
+    }
+
+    // Guard 3: Check SDK client
+    if (!pushWallet.pushChainClient) {
+      setExecutionError("Wallet is still initializing. Please wait a moment and try again.");
+      diagnostics.logSessionEvent("Swap blocked - pushChainClient not ready");
       return;
     }
 
@@ -974,28 +989,74 @@ export const SwapPage = ({
             </div>
           )}
           {/* Start Swapping Button */}
-          <button
-            onClick={handleStartSwapping}
-            disabled={isExecuting || !swapData.quote || (pushWallet.isConnected && !pushWallet.pushChainClient)}
-            className="relative w-full cursor-pointer rounded py-4 text-xl font-bold text-white transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span>
-              {pushWallet.isConnected && !pushWallet.pushChainClient
-                ? "INITIALIZING..."
-                : isExecuting
+          {/* Case 1: Wallet not connected — show connect prompt */}
+          {!pushWallet.isConnected && !pushWallet.isConnecting ? (
+            <button
+              onClick={() => pushWallet.connect?.()}
+              className="relative w-full cursor-pointer rounded py-4 text-xl font-bold text-white transition-all hover:scale-105"
+            >
+              <span>CONNECT WALLET</span>
+              <Image
+                src="/dapp/connect-wallet.png"
+                alt="Connect"
+                width={200}
+                height={200}
+                className="absolute inset-0 z-[-1] h-full w-full object-fill"
+              />
+            </button>
+          ) : pushWallet.isConnecting ? (
+            /* Case 2: Wallet is connecting */
+            <button
+              disabled
+              className="relative w-full cursor-not-allowed rounded py-4 text-xl font-bold text-white opacity-60"
+            >
+              <span>CONNECTING...</span>
+              <Image
+                src="/dapp/connect-wallet.png"
+                alt="Connecting"
+                width={200}
+                height={200}
+                className="absolute inset-0 z-[-1] h-full w-full object-fill"
+              />
+            </button>
+          ) : !pushWallet.pushChainClient ? (
+            /* Case 3: Connected but SDK not ready */
+            <button
+              disabled
+              className="relative w-full cursor-not-allowed rounded py-4 text-xl font-bold text-white opacity-60"
+            >
+              <span>INITIALIZING...</span>
+              <Image
+                src="/dapp/connect-wallet.png"
+                alt="Initializing"
+                width={200}
+                height={200}
+                className="absolute inset-0 z-[-1] h-full w-full object-fill"
+              />
+            </button>
+          ) : (
+            /* Case 4: Ready to swap */
+            <button
+              onClick={handleStartSwapping}
+              disabled={isExecuting || !swapData.quote}
+              className="relative w-full cursor-pointer rounded py-4 text-xl font-bold text-white transition-all hover:scale-105 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <span>
+                {isExecuting
                   ? currentStep || "SWAPPING..."
                   : needsApproval
                     ? "APPROVE"
                     : "START SWAPPING"}
-            </span>
-            <Image
-              src="/dapp/connect-wallet.png"
-              alt="Profile"
-              width={200}
-              height={200}
-              className="absolute inset-0 z-[-1] h-full w-full object-fill"
-            />
-          </button>
+              </span>
+              <Image
+                src="/dapp/connect-wallet.png"
+                alt="Profile"
+                width={200}
+                height={200}
+                className="absolute inset-0 z-[-1] h-full w-full object-fill"
+              />
+            </button>
+          )}
         </div>
       </div>
     </div>
