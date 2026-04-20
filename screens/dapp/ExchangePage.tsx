@@ -1009,17 +1009,30 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       }
 
       try {
-        // Get the chain to access vmType
-        const chain = chains.find((c) => String(c.id) === fromChainId);
-        const vmType = chain?.vmType;
-
-        const balance = await getTokenBalance(
-          walletAddress as Address,
-          fromToken,
-          Number(fromChainId),
-          fromTokenMeta?.decimals,
-          vmType,
-        );
+        // Prefer the ORIGIN-chain balance for bridgeable PRC-20s when the
+        // user's connected origin chain matches the token's bridge origin —
+        // that's the amount they actually hold in Phantom/MetaMask and the
+        // amount that gets auto-bridged on swap. Falling back to the
+        // Push-chain PRC-20 balance would show a post-bridge leftover
+        // (usually 0 for first-time users) and — critically — make the
+        // MAX/50%/20% buttons compute against the wrong number.
+        const originPubkey = (pushWallet as any)?.origin || null;
+        const userOriginChain = (pushWallet as any)?.originChain || null;
+        let balance: string | null = null;
+        if ((fromTokenMeta as any)?.bridgeable && originPubkey && userOriginChain) {
+          balance = await fetchOriginBalance(fromToken, originPubkey, userOriginChain);
+        }
+        if (balance === null) {
+          const chain = chains.find((c) => String(c.id) === fromChainId);
+          const vmType = chain?.vmType;
+          balance = await getTokenBalance(
+            walletAddress as Address,
+            fromToken,
+            Number(fromChainId),
+            fromTokenMeta?.decimals,
+            vmType,
+          );
+        }
 
         if (!cancelled) {
           setFromTokenBalance(balance);
@@ -1041,7 +1054,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     return () => {
       cancelled = true;
     };
-  }, [walletAddress, fromChainId, fromToken, fromTokenMeta?.decimals, chains]);
+  }, [walletAddress, fromChainId, fromToken, fromTokenMeta?.decimals, (fromTokenMeta as any)?.bridgeable, chains, pushWallet.origin, pushWallet.originChain]);
 
   // ═══ ORIGIN-CHAIN BALANCE + PHANTOM DEVNET CHECK ═══════════════════════
   // When user is on a non-Push origin chain AND selects a bridgeable token
@@ -2077,22 +2090,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                                     (${Number(balanceUsdValue).toFixed(2)})
                                   </span>
                                 )}
-                                {/* Origin-chain balance: shows real-asset
-                                    balance on the source chain (e.g. SOL on
-                                    Solana Devnet, ETH on Sepolia) the user
-                                    can bridge into this swap. */}
-                                {originBalance && Number(originBalance) > 0 && (
-                                  <span className="text-[#7DD3FC]">
-                                    {" "}
-                                    (+ {Number(originBalance).toLocaleString(undefined, { maximumFractionDigits: 6 })} {(fromTokenMeta as any)?.originSymbol || ""} on {(fromTokenMeta as any)?.originChainName || (fromTokenMeta as any)?.sourceChain || "origin"})
-                                  </span>
-                                )}
                               </p>
                             ) : (
                               <p className="font-family-ThaleahFat text-sm tracking-widest text-[#8B8B8B] uppercase">
-                                {originBalance && Number(originBalance) > 0
-                                  ? `Balance: 0 ${displaySymbolOf(fromTokenMeta)} (+ ${Number(originBalance).toLocaleString(undefined, { maximumFractionDigits: 6 })} ${(fromTokenMeta as any)?.originSymbol || ""} on ${(fromTokenMeta as any)?.originChainName || (fromTokenMeta as any)?.sourceChain || "origin"})`
-                                  : "Unable to load balance"}
+                                Unable to load balance
                               </p>
                             )}
                             {/* Phantom cluster warning */}
