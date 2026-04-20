@@ -289,67 +289,45 @@ export const SwapPage = ({
         try {
           const { canAutoBridgeFrom } = await import("@/lib/pushchain/prc20-bridge-map");
           if (canAutoBridgeFrom(swapData.fromToken, originChain)) {
-            // ROOT-CAUSE FIX for Phantom "Me: Unexpected error":
-            // Push's SVM gateway program (CFVSincHYbETh2k7w6u1ENEkjbSLtveRCEBupKidw2VS)
-            // exists ONLY on Solana Devnet. If Phantom's active cluster is
-            // Mainnet, its simulator can't find the program and throws the
-            // cryptic "Unexpected error". Phantom doesn't expose a reliable
-            // cluster getter, so we fingerprint by querying BOTH clusters for
-            // the user's SOL balance — if Mainnet > Devnet, Phantom is almost
-            // certainly on Mainnet. Block the swap and surface the fix.
-            const rpcCall = async (url: string) => {
-              const r = await fetch(url, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  jsonrpc: "2.0", id: 1, method: "getBalance", params: [origin],
-                }),
-              });
-              const j = await r.json();
-              return typeof j?.result?.value === "number" ? j.result.value : null;
-            };
-            const [devLamports, mainLamports] = await Promise.all([
-              rpcCall("https://api.devnet.solana.com"),
-              rpcCall("https://api.mainnet-beta.solana.com"),
-            ]);
-            console.log("[MoleSwap] Solana cluster fingerprint:", {
-              pubkey: origin.slice(0, 8) + "...",
-              devnetLamports: devLamports,
-              mainnetLamports: mainLamports,
+            // Single Devnet-balance check: the Push Solana gateway is on
+            // Devnet only, so we need the user to have Devnet SOL covering
+            // (bridge amount + ~5k lamport fees). Mainnet-balance fingerprinting
+            // was a dead end: public Mainnet RPCs reject browser requests with
+            // 403, and the real cause of the earlier "Unexpected error" was
+            // actually the helper dispatch mode (see amm.ts — Solana helper
+            // now routes via MULTICALL_TARGET_ADDRESS, not the raw `to`).
+            const res = await fetch("https://api.devnet.solana.com", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                jsonrpc: "2.0", id: 1, method: "getBalance", params: [origin],
+              }),
             });
-
+            const json = await res.json();
+            const lamports: number | undefined = json?.result?.value;
             const amountHuman = Number(swapData.amount || "0");
             const decimalsIn = swapData.fromTokenMeta?.decimals ?? 9;
             const requiredLamports = Math.ceil(amountHuman * 10 ** decimalsIn) + 5_000;
+            console.log("[MoleSwap] Devnet balance check:", {
+              pubkey: origin.slice(0, 8) + "...",
+              devnetLamports: lamports,
+              requiredLamports,
+            });
 
-            // Check 1: Phantom on Mainnet (Devnet has ~0 SOL but Mainnet has balance).
-            // This is THE common failure mode — the cryptic "Me: Unexpected error".
-            if (
-              typeof mainLamports === "number" && mainLamports > 0 &&
-              (typeof devLamports !== "number" || devLamports < requiredLamports)
-            ) {
-              const mainSol = (mainLamports / 1e9).toFixed(4);
-              const devSol = typeof devLamports === "number"
-                ? (devLamports / 1e9).toFixed(4)
-                : "0";
+            if (typeof lamports === "number" && lamports === 0) {
               throw new Error(
-                "Phantom is on Solana Mainnet — Push Chain's bridge only works with Solana Devnet.\n\n" +
-                `Your balances: ${mainSol} SOL on Mainnet, ${devSol} SOL on Devnet.\n\n` +
-                "Fix it:\n" +
-                "1. Open Phantom → Settings → Developer Settings\n" +
-                "2. Enable Testnet Mode\n" +
-                "3. Switch the Solana network to Devnet\n" +
-                "4. Get free Devnet SOL from https://faucet.solana.com/\n" +
-                "5. Reconnect and try again."
+                "Your Solana Devnet balance is 0. If Phantom shows a SOL balance, it's on Mainnet — " +
+                  "Push Chain's bridge only works with Devnet. Open Phantom → Settings → Developer " +
+                  "Settings → enable Testnet Mode, then switch the network to Solana Devnet. Get " +
+                  "free Devnet SOL from https://faucet.solana.com/"
               );
             }
-
-            // Check 2: On Devnet but out of gas.
             if (
-              typeof devLamports === "number" &&
-              devLamports < requiredLamports
+              typeof lamports === "number" &&
+              Number.isFinite(requiredLamports) &&
+              lamports < requiredLamports
             ) {
-              const haveSol = (devLamports / 1e9).toFixed(6);
+              const haveSol = (lamports / 1e9).toFixed(6);
               const needSol = (requiredLamports / 1e9).toFixed(6);
               throw new Error(
                 `Not enough Devnet SOL to bridge. You have ${haveSol} SOL but need ~${needSol} SOL (including fees). ` +
@@ -358,14 +336,11 @@ export const SwapPage = ({
             }
           }
         } catch (preflightErr: any) {
-          // Surface our own thrown errors (Phantom/Devnet/etc.) — recognise them
-          // by any of the keywords we put in the message.
           const m = preflightErr?.message || "";
           if (m.includes("Devnet") || m.includes("Mainnet") || m.includes("Phantom")) {
             throw preflightErr;
           }
-          // Network probe failed — don't block, just warn and continue
-          console.warn("[MoleSwap] Solana cluster fingerprint failed (non-fatal):", preflightErr);
+          console.warn("[MoleSwap] Devnet balance probe failed (non-fatal):", preflightErr);
         }
       }
 

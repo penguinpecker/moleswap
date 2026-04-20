@@ -114,9 +114,10 @@ export const MULTICALL_SELECTOR = "0x1749e1e3" as const;
 export const UEA_MULTICALL_SELECTOR = "0x2cc2842d" as const;
 
 // ─── BRIDGE HELPER (Solana 1-sig optimization) ───────────────────────────────
-// When deployed, this contract enables 1-signature swaps for Solana users by
-// combining wrap+approve+swap into a single function call that fits in Solana's
-// 1232-byte tx buffer. Similar to RamenFi's depositPRC20WithAutoSwap (0x780ad827).
+// When deployed, this contract bundles wrap+approve+swap into a single function
+// call that fits Solana's 1232-byte tx buffer (a la RamenFi's
+// depositPRC20WithAutoSwap, 0x780ad827). Intent: 1-signature cross-chain swaps
+// for Phantom users.
 const BRIDGE_HELPER_DEPLOYED =
   CONTRACTS.MOLESWAP_BRIDGE_HELPER !== "0x0000000000000000000000000000000000000000";
 const bridgeHelperIface = new ethers.Interface(BRIDGE_HELPER_ABI);
@@ -489,7 +490,22 @@ export async function executeSteps(
           return sequentialResult;
         }
 
-        // Send via helper: gateway mints TO helper, helper swaps
+        // Send via helper: gateway mints TO helper, helper swaps.
+        //
+        // CRITICAL — DISPATCH MODE:
+        // The Push SVM gateway's cross-chain relay on Solana dispatches inbound
+        // txs through MULTICALL_TARGET_ADDRESS (0x0) + a call-array payload —
+        // NOT via an arbitrary `to` address. Passing a custom contract address
+        // directly as `to` produced Phantom's opaque "Me: Unexpected error"
+        // because the Solana gateway instruction had no recognized target and
+        // the signer refused to simulate. The fix is to wrap our single helper
+        // call in a one-element multicall — same shape the non-Solana
+        // `useMulticall` branch uses (line 363), which is the path the SDK's
+        // Solana relay actually supports.
+        //
+        // Tx size stays well under the 1232-byte Solana limit: 8 bytes Anchor
+        // discriminator + ~160 bytes multicall ABI frame + ~196 bytes helper
+        // calldata + ~400 bytes Solana envelope ≈ 770 bytes.
         if (!helperCalldata) {
           // Should be unreachable — the try block above either assigns or throws.
           // Kept as defense-in-depth so we never silently send `null` as calldata.
@@ -501,9 +517,15 @@ export async function executeSteps(
         }
         const funds = { amount: BigInt(bridgeStep.amount), token: bridgeStep.token };
         const tx = await pushChainClient.universal.sendTransaction({
-          to: CONTRACTS.MOLESWAP_BRIDGE_HELPER,
+          to: MULTICALL_TARGET_ADDRESS,
           funds,
-          data: helperCalldata,
+          data: [
+            {
+              to: CONTRACTS.MOLESWAP_BRIDGE_HELPER,
+              value: 0n,
+              data: helperCalldata,
+            },
+          ],
         });
         finalTxHash = extractTxHash(tx);
         onStep(0, combinedLabel, "confirmed");
