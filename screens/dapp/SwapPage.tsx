@@ -48,6 +48,9 @@ interface SwapPageProps {
     etaSeconds?: number;
     rateLabel?: string;
     walletAddress?: string | null;
+    /** Custom destination the user entered in ExchangePage's Recipient field.
+     *  Falls back to the UEA when unset. Must be a 42-char 0x EVM address. */
+    recipientAddress?: string | null;
   };
   onSwapStart?: () => void; // Called when swap execution starts (after wallet approval)
   onSwapComplete?: () => void; // Called when swap completes
@@ -699,13 +702,29 @@ export const SwapPage = ({
       // approve only if allowance insufficient, multi-hop has 4 steps, etc.)
       setSwapSteps(initialSwapSteps);
 
+      // Custom recipient support: ExchangePage lets the user enter a
+      // destination address distinct from their UEA. That value is piped
+      // through `swapData.recipientAddress` (see ExchangePage.tsx:978). If
+      // present AND it looks like a valid EVM hex, route the swap proceeds
+      // there; otherwise default to the UEA so nothing silently sends to an
+      // unintended address on malformed input.
+      const isHexAddr = (s: unknown): s is string =>
+        typeof s === "string" && /^0x[0-9a-fA-F]{40}$/.test(s);
+      const customRecipient = isHexAddr(swapData.recipientAddress)
+        ? swapData.recipientAddress
+        : null;
+      const finalRecipient = customRecipient || currentAddress;
+      if (customRecipient && customRecipient.toLowerCase() !== currentAddress.toLowerCase()) {
+        console.log("[MoleSwap] Custom recipient in use:", customRecipient);
+      }
+
       const swapResult = await pushSwap({
         pushChainClient: pushWallet.pushChainClient,
         tokenIn: swapData.fromToken,
         tokenOut: swapData.toToken,
         amountIn: swapData.quote?.amountIn || amountWei,
         amountOutMin: swapData.quote?.amountOut || "0",
-        recipient: currentAddress,
+        recipient: finalRecipient,
         fee: swapData.quote?.fee,
         // Pass origin chain — executeSwap uses this to pick between multicall
         // (1 sig for Phantom/MM-Sepolia cross-chain) vs sequential (N sigs
@@ -996,12 +1015,15 @@ export const SwapPage = ({
                   <div className="font-family-ThaleahFat text-3xl text-zinc-100">
                     {swapData.expectedOut || "0"}
                   </div>
+                  {/* Destination label: the asset lands as a PRC-20 on Push
+                      Chain (at the UEA or the custom recipient), NOT on the
+                      origin chain. Previously read `on <toChain>` which lied
+                      for bridged tokens like pETH (user got pETH on Push,
+                      not native ETH on Ethereum). When outbound Route 2 is
+                      wired, switch this back to toChain. */}
                   <div className="text-sm font-semibold text-stone-300">
                     {swapData.feesLabel || ""} •{" "}
-                    {displaySymbolOf(swapData.toTokenMeta, swapData.toToken)} on{" "}
-                    {swapData.toChain?.displayName ||
-                      swapData.toChain?.name ||
-                      "Unknown"}
+                    {(swapData.toTokenMeta as any)?.symbol || displaySymbolOf(swapData.toTokenMeta, swapData.toToken)} on Push Chain
                   </div>
                 </div>
               </div>

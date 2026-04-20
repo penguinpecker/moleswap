@@ -2035,10 +2035,23 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                     upfront so they know the swap completes with a destination
                     settlement on their home chain. No extra clicks from the
                     user — they just see the promise of where funds will land. */}
-                {bridgeOutPreview && (
+                {/* Destination-clarity banner — tells the user EXACTLY what
+                    asset lands where. Today the outbound bridge (Route 2 UOA
+                    → CEA) isn't wired, so the proceeds of any swap stay as a
+                    PRC-20 on Push Chain. Don't promise native ETH/SOL on
+                    origin until the outbound is implemented (see
+                    lib/pushchain/amm.ts). Always render the truth instead of
+                    the aspirational bridge-out preview.
+                    TODO(outbound): once buildOutboundRequest + execute is
+                    wired, swap this banner to the true origin-delivery label
+                    and key it on an `outboundWired` flag. */}
+                {toTokenMeta && (
                   <div className="relative z-10 mx-auto -mt-2 w-full px-6 sm:w-[90%]">
                     <p className="font-family-ThaleahFat text-xs tracking-wider uppercase text-[#7DD3FC] sm:text-sm">
-                      ✓ Will arrive as {bridgeOutPreview.originSymbol} on {bridgeOutPreview.label}
+                      ✓ Arrives as {(toTokenMeta as any)?.symbol || displaySymbolOf(toTokenMeta)} on Push Chain
+                      {recipientAddress && walletAddress && recipientAddress.toLowerCase() !== walletAddress.toLowerCase() && (
+                        <> → {recipientAddress.slice(0, 6)}…{recipientAddress.slice(-4)}</>
+                      )}
                     </p>
                   </div>
                 )}
