@@ -171,7 +171,10 @@ export const TransactionInfoPage = ({
                 </div>
                 <div>
                   <div className="font-family-ThaleahFat text-3xl text-zinc-100">{swapData.expectedOut || "0"}</div>
-                  <div className="text-sm font-semibold text-stone-300">{swapData.feesLabel || ""} • {swapData.toTokenMeta?.symbol || swapData.toToken} on {swapData.toChain?.displayName || swapData.toChain?.name || "Push Chain"}</div>
+                  {/* Output always lands as PRC-20 on Push Chain (no outbound
+                      bridge wired). Labelled directly so the transaction-info
+                      card matches what actually happens on-chain. */}
+                  <div className="text-sm font-semibold text-stone-300">{swapData.feesLabel || ""} • {swapData.toTokenMeta?.symbol || swapData.toToken} on Push Chain</div>
                 </div>
               </div>
             </div>

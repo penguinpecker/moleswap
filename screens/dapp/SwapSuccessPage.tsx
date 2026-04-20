@@ -21,12 +21,18 @@ export const SwapSuccessPage = ({ onNext, swapData }: SwapSuccessPageProps) => {
   // Calculate tickets based on swap amount (4 tickets for successful swap)
   const ticketsReceived = 4;
 
-  // Get actual values from swap data
+  // Get actual values from swap data.
+  //
+  // toChainName is hard-coded to "Push Chain" — swap proceeds always land as
+  // a PRC-20 on Push Chain regardless of what origin chain the destination
+  // PRC-20 represents. Previously the success page read toChain.displayName
+  // (Ethereum / Solana / etc.) which lied: a pETH swap arrives on Push, not
+  // Ethereum. Flip back to origin-chain labelling once outbound Route 2 is
+  // wired.
   const expectedOut = swapData.expectedOut || "0";
   const feesLabel = swapData.feesLabel || "";
   const toTokenSymbol = swapData.toTokenMeta?.symbol || swapData.toToken || "";
-  const toChainName =
-    swapData.toChain?.displayName || swapData.toChain?.name || "";
+  const toChainName = "Push Chain";
 
   // Calculate percentage change (placeholder for now, could be calculated from rate)
   const percentageChange = "+0.31%";

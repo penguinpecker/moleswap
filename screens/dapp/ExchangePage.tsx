@@ -6,7 +6,7 @@ import Image from "next/image";
 import { getChains, getTokensForChain, type RelayChain } from "@/lib/relay/api";
 import { relayClient } from "@/lib/relay/client";
 import { usePushWallet } from "@/lib/pushchain/provider";
-import { getTokenByAddress, POOLS, CONTRACTS } from "@/lib/pushchain/contracts";
+import { getTokenByAddress, POOLS, CONTRACTS, getPoolDisplayInfo, TOKENS } from "@/lib/pushchain/contracts";
 import { estimateSwapDetails } from "@/lib/pushchain/amm";
 import { getOrCreateUser, getUserSwapHistory } from "@/lib/supabase/api";
 import { getTokenBalance } from "@/lib/wallet/walletClient";
@@ -1296,8 +1296,16 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     setSelectionMode(mode);
     setSearchQuery("");
     setSearchQueryNetwork("");
+    // Destination is ALWAYS Push Chain — proceeds of every swap land as a
+    // PRC-20 on Push (no outbound bridge today). Hard-code Push Chain for
+    // the TO picker so users can't select Ethereum/Solana/Base/Arbitrum/BNB
+    // destinations that would mislead them about where the asset ends up.
+    if (mode === "to") {
+      setSelectedNetwork("Push Chain");
+      return;
+    }
     // Find the chain group that contains the currently selected token for this side
-    const currentToken = mode === "from" ? fromToken : toToken;
+    const currentToken = fromToken;
     const matchedChain = chains.find((c) =>
       getTokensForChain(c).some((t) => t.address?.toLowerCase() === currentToken?.toLowerCase())
     );
@@ -1311,22 +1319,46 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     setSelectedNetwork("");
   };
 
-  // List of networks filtered by search
+  // List of networks filtered by search.
+  //
+  // FROM: show every chain (user may hold real assets on Ethereum / Solana /
+  //       Base / Arbitrum / BNB to bridge IN, plus Push Chain natives).
+  // TO:   only Push Chain. Destination of every swap is a PRC-20 sitting on
+  //       Push Chain — no outbound bridge is wired today, so listing
+  //       Ethereum/Solana/etc. as destinations would lie about where the
+  //       asset ends up.
   const filteredNetworks = useMemo(() => {
-    return chains.filter((net) =>
+    const src = selectionMode === "to"
+      ? chains.filter((c) => c.name === "Push Chain")
+      : chains;
+    return src.filter((net) =>
       (net.displayName || net.name || "")
         .toLowerCase()
         .includes(searchQueryNetwork.toLowerCase()),
     );
-  }, [chains, searchQueryNetwork]);
+  }, [chains, searchQueryNetwork, selectionMode]);
 
-  // Tokens for the currently selected network in the modal
+  // Tokens for the currently selected network in the modal.
+  // For TO mode we merge every swappable token (across every source chain)
+  // into the Push Chain group, because that's where they all live as PRC-20s.
   const modalChain =
     chains.find((c) => c.name === selectedNetwork) || null;
-  const modalTokens = useMemo(
-    () => (modalChain ? getTokensForChain(modalChain) : []),
-    [modalChain],
-  );
+  const modalTokens = useMemo(() => {
+    if (selectionMode === "to") {
+      const seen = new Set<string>();
+      const merged: ReturnType<typeof getTokensForChain> = [];
+      for (const c of chains) {
+        for (const t of getTokensForChain(c)) {
+          const key = (t.address || "").toLowerCase();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          merged.push(t);
+        }
+      }
+      return merged;
+    }
+    return modalChain ? getTokensForChain(modalChain) : [];
+  }, [modalChain, chains, selectionMode]);
 
   const filteredModalTokens = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -1562,7 +1594,24 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
               <div className="hide-scrollbar relative flex max-h-[450px] flex-col gap-3 overflow-y-auto">
                 {selectedNetwork ? (
                   filteredModalTokens.length > 0 ? (
-                    filteredModalTokens.map((token, idx) => (
+                    filteredModalTokens.map((token, idx) => {
+                      // FROM picker shows the ORIGIN-asset framing ("SOL on
+                      // Solana", "ETH on Ethereum") because the user holds
+                      // those assets on the origin chain and they get
+                      // bridged in. TO picker shows the PRC-20 framing
+                      // ("pETH on Push Chain", "USDT.eth on Push Chain")
+                      // because that's where the output actually lands.
+                      const tokenInfo = TOKENS.find(
+                        (t) => t.address?.toLowerCase() === token.address?.toLowerCase(),
+                      );
+                      const toDisp = tokenInfo ? getPoolDisplayInfo(tokenInfo) : null;
+                      const symbolLabel = selectionMode === "to" && toDisp
+                        ? toDisp.symbol
+                        : displaySymbolOf(token);
+                      const subtitleLabel = selectionMode === "to" && toDisp
+                        ? toDisp.subtitle
+                        : displaySubtitleOf(token);
+                      return (
                       <button
                         key={`${token.address}-${idx}`}
                         onClick={() => handleSelectToken(token.address)}
@@ -1581,10 +1630,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                             </div>
                             <div className="text-left">
                               <h2 className="font-family-ThaleahFat text-xl tracking-wider text-white uppercase sm:text-3xl sm:tracking-widest">
-                                {displaySymbolOf(token)}
+                                {symbolLabel}
                               </h2>
                               <p className="font-family-ThaleahFat -mt-1 text-sm tracking-wider text-[#B0B0B0] uppercase sm:-mt-2 sm:text-lg sm:tracking-widest">
-                                {displaySubtitleOf(token)}
+                                {subtitleLabel}
                               </p>
                             </div>
                           </div>
@@ -1635,7 +1684,8 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                           className="absolute inset-0 left-0 z-[-1] h-full w-full"
                         />
                       </button>
-                    ))
+                      );
+                    })
                   ) : (
                     <p className="font-family-ThaleahFat text-center text-xl text-gray-400">
                       No token found

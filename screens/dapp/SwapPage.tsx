@@ -708,13 +708,26 @@ export const SwapPage = ({
       // present AND it looks like a valid EVM hex, route the swap proceeds
       // there; otherwise default to the UEA so nothing silently sends to an
       // unintended address on malformed input.
+      // Custom recipient support: ExchangePage pipes the user's typed
+      // destination through swapData.recipientAddress. We split it into two
+      // params for executeSwap:
+      //   - `recipient`       = caller / UEA (used for approvals, balance
+      //                         lookups, msg.sender anchor).
+      //   - `outputRecipient` = optional custom destination; when set and
+      //                         different from `recipient`, executeSwap
+      //                         skips FeeRouter and routes via UniV3
+      //                         SwapRouter directly (which accepts a
+      //                         recipient param). Custom-recipient swaps
+      //                         therefore skip the 0.25% house fee — the
+      //                         niche-case trade-off documented in amm.ts.
       const isHexAddr = (s: unknown): s is string =>
         typeof s === "string" && /^0x[0-9a-fA-F]{40}$/.test(s);
-      const customRecipient = isHexAddr(swapData.recipientAddress)
-        ? swapData.recipientAddress
-        : null;
-      const finalRecipient = customRecipient || currentAddress;
-      if (customRecipient && customRecipient.toLowerCase() !== currentAddress.toLowerCase()) {
+      const customRecipient =
+        isHexAddr(swapData.recipientAddress) &&
+        swapData.recipientAddress.toLowerCase() !== currentAddress.toLowerCase()
+          ? swapData.recipientAddress
+          : null;
+      if (customRecipient) {
         console.log("[MoleSwap] Custom recipient in use:", customRecipient);
       }
 
@@ -724,7 +737,8 @@ export const SwapPage = ({
         tokenOut: swapData.toToken,
         amountIn: swapData.quote?.amountIn || amountWei,
         amountOutMin: swapData.quote?.amountOut || "0",
-        recipient: finalRecipient,
+        recipient: currentAddress,            // caller — always the UEA
+        outputRecipient: customRecipient,     // optional; null → proceeds land at UEA
         fee: swapData.quote?.fee,
         // Pass origin chain — executeSwap uses this to pick between multicall
         // (1 sig for Phantom/MM-Sepolia cross-chain) vs sequential (N sigs

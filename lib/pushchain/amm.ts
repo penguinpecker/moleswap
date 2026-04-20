@@ -1055,7 +1055,18 @@ export async function executeSwap(params: {
   tokenOut: string;
   amountIn: string;
   amountOutMin: string;
+  /** Caller's address on Push Chain (UEA for cross-chain users). Used as the
+   *  msg.sender anchor for approvals, balance lookups, and default output
+   *  destination when no custom outputRecipient is provided. */
   recipient: string;
+  /** Optional custom destination for the swap output. When set and distinct
+   *  from `recipient`, executeSwap bypasses the fee-collecting FeeRouter and
+   *  routes through the UniV3 SwapRouter directly (which accepts `recipient`
+   *  in its params struct). Trade-off: those swaps don't pay the 0.25% house
+   *  fee — fine for the niche case of sending proceeds to a different wallet.
+   *  Single-hop token→token only; multi-hop with custom recipient falls back
+   *  through the normal path today. */
+  outputRecipient?: string | null;
   fee?: number;
   deadline?: number;
   universalTxOptions?: UniversalTxOptions;
@@ -1411,20 +1422,87 @@ export async function executeSwap(params: {
       }
     } else {
       // ── Single-hop: direct pool ──
-      const tokenToApprove = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
 
-      // Approve tokenIn to FeeRouter
+      // CUSTOM-RECIPIENT BYPASS (option A).
+      // When the user wants swap proceeds delivered to an address OTHER than
+      // their own UEA, we can't use FeeRouter — its swapExactInputSingle /
+      // swapNativeOutput signatures have no `recipient` parameter and always
+      // forward to msg.sender (= UEA). Route through the UniV3 SwapRouter
+      // directly instead; its exactInputSingle params tuple has `recipient`
+      // built in, so the tokens land at the custom address without ever
+      // touching the UEA. Trade-off: these swaps skip FeeRouter's 0.25%
+      // house fee. Documented and acceptable for the niche case of sending
+      // proceeds to a different wallet.
+      const customRecipient =
+        params.outputRecipient &&
+        params.outputRecipient.toLowerCase() !== params.recipient.toLowerCase()
+          ? params.outputRecipient
+          : null;
+      const useBypass = !!customRecipient;
+
+      const tokenToApprove = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
+      const approveTarget = useBypass ? CONTRACTS.SWAP_ROUTER : CONTRACTS.MOLESWAP_FEE_ROUTER;
+
       steps.push({
         type: "swap",
         to: tokenToApprove,
         value: "0",
-        data: approveIface.encodeFunctionData("approve", [CONTRACTS.MOLESWAP_FEE_ROUTER, amountIn]),
+        data: approveIface.encodeFunctionData("approve", [approveTarget, amountIn]),
         label: "Approve " + (getTokenByAddress(tokenToApprove)?.symbol || "token"),
       });
 
       const poolFee = params.fee || directPool?.fee || 500;
 
-      if (isNativeOut) {
+      if (useBypass) {
+        if (isNativeOut) {
+          // Custom recipient + native out: SwapRouter.multicall([exactInputSingle(recipient=SwapRouter), unwrapWETH9(min, customRecipient)])
+          // The SwapRouter holds WPC after the swap, then unwraps and sends
+          // native PC to the custom recipient — all atomic.
+          const exactInputSingleCall = swapRouterIface.encodeFunctionData("exactInputSingle", [
+            {
+              tokenIn: actualIn,
+              tokenOut: CONTRACTS.WPC,
+              fee: poolFee,
+              recipient: CONTRACTS.SWAP_ROUTER,
+              deadline: BigInt(deadline),
+              amountIn,
+              amountOutMinimum: amountOutMin,
+              sqrtPriceLimitX96: 0,
+            },
+          ]);
+          const unwrapCall = swapRouterIface.encodeFunctionData("unwrapWETH9", [
+            amountOutMin,
+            customRecipient,
+          ]);
+          steps.push({
+            type: "swap",
+            to: CONTRACTS.SWAP_ROUTER,
+            value: "0",
+            data: swapRouterIface.encodeFunctionData("multicall", [[exactInputSingleCall, unwrapCall]]),
+            label: `Swap ${getTokenByAddress(actualIn)?.symbol || "token"} → PC → ${customRecipient.slice(0, 6)}…`,
+          });
+        } else {
+          // Token → token, custom recipient. Clean single call.
+          steps.push({
+            type: "swap",
+            to: CONTRACTS.SWAP_ROUTER,
+            value: "0",
+            data: swapRouterIface.encodeFunctionData("exactInputSingle", [
+              {
+                tokenIn: actualIn,
+                tokenOut: actualOut,
+                fee: poolFee,
+                recipient: customRecipient,
+                deadline: BigInt(deadline),
+                amountIn,
+                amountOutMinimum: amountOutMin,
+                sqrtPriceLimitX96: 0,
+              },
+            ]),
+            label: `Swap → ${customRecipient.slice(0, 6)}…`,
+          });
+        }
+      } else if (isNativeOut) {
         // ── Native PC out: use swapNativeOutput so FeeRouter swaps to WPC
         // and atomically unwraps + forwards native PC to msg.sender. This
         // avoids leaving wrapped WPC stuck in the user's UEA (which was the
