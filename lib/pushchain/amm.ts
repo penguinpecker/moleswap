@@ -1183,6 +1183,12 @@ export async function executeSwap(params: {
 
     const steps: SwapStep[] = [];
     const feeRouterIface = new ethers.Interface(FEE_ROUTER_ABI);
+    // Hoist swapRouterIface so both the multi-hop branch AND the single-hop
+    // custom-recipient bypass can use it (they live in separate if/else
+    // scopes). Previously the bypass tried to reference it inside the
+    // single-hop branch, where it was redeclared only in multi-hop — giving
+    // "swapRouterIface is not defined" at runtime.
+    const swapRouterIface = new ethers.Interface(SWAP_ROUTER_ABI);
     const approveIface = new ethers.Interface([
       "function approve(address,uint256) returns (bool)",
     ]);
@@ -1338,7 +1344,7 @@ export async function executeSwap(params: {
       // treasury cut. Single-hop swaps (handled in the else branch below)
       // still route through FeeRouter and pay the fee. This is standard
       // AMM router behavior — RamenFi does the same.
-      const swapRouterIface = new ethers.Interface(SWAP_ROUTER_ABI);
+      // swapRouterIface is hoisted above — reused here.
 
       // Encode the path: tokenIn (20 bytes) + fee (3 bytes) + WPC (20 bytes) + fee (3 bytes) + tokenOut (20 bytes)
       const encodePath = (
