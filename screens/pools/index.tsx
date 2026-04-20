@@ -420,7 +420,7 @@ const PoolsContent = () => {
                         <div>
                           <div className="font-family-ThaleahFat text-xl tracking-wider text-white">{p.name}</div>
                           <div className="mt-0.5 flex gap-1">
-                            <Badge chain={p.token0.sourceChain} />
+                            <Badge chain="Push Chain" />
                             <span className="font-family-ThaleahFat bg-ground-button-border rounded-sm px-1.5 py-px text-sm text-gray-400">
                               {(p.fee / 10000).toFixed(2)}%
                             </span>
@@ -441,7 +441,7 @@ const PoolsContent = () => {
                         <TokenPair t0={p.token0} t1={p.token1} size={32} />
                         <div>
                           <div className="font-family-ThaleahFat text-lg text-white">{p.name}</div>
-                          <Badge chain={p.token0.sourceChain} />
+                          <Badge chain="Push Chain" />
                         </div>
                       </div>
                       <div className="text-right">
@@ -838,7 +838,12 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
                 <div>
                   <span className="font-family-ThaleahFat text-2xl tracking-wider text-white">{poolName}</span>
                   <div className="mt-0.5 flex flex-wrap gap-1">
-                    {t0 && <Badge chain={t0.sourceChain} />}
+                    <Badge chain="Push Chain" />
+                    {t0 && t0.sourceChain !== "Push Chain" && (
+                      <span className="font-family-ThaleahFat rounded-sm bg-[#3A1F0E] px-1.5 py-px text-sm text-[#C49A6C]">
+                        bridged from {t0.sourceChain}
+                      </span>
+                    )}
                     <span className="font-family-ThaleahFat rounded-sm bg-[#3A1F0E] px-1.5 py-px text-sm text-[#C49A6C]">
                       {ep?.feeTier || `${(pos.fee / 10000).toFixed(2)}%`}
                     </span>

@@ -62,8 +62,13 @@ export interface TokenInfo {
    */
   displaySymbol?: string;
   /**
-   * Subtitle shown under the symbol to disambiguate which chain's ETH/USDT/etc.
-   * this is. Examples: "on Push · Ethereum", "on Push · Solana", "on Push".
+   * Subtitle shown in the SWAP UI, labelling the ORIGIN chain the asset lives
+   * on (what the user actually holds in Phantom/MetaMask). Examples:
+   * "on Solana", "on Ethereum", "on Base", "Push Chain native". In the POOLS
+   * UI this is overridden by `getPoolDisplayInfo` which labels the PRC-20 as
+   * "on Push Chain" — the two contexts display the same token differently
+   * because the user is interacting with different layers (origin asset vs
+   * bridged PRC-20).
    */
   displaySubtitle?: string;
   /**

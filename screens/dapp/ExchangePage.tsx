@@ -31,8 +31,8 @@ declare global {
 /**
  * UI-facing display helpers. Always prefer the RelayCurrency's displaySymbol /
  * displaySubtitle when present — they carry real-asset names ("ETH", "SOL",
- * "USDT") with origin chain subtitles ("on Push · Ethereum"). Fall back to
- * the raw symbol/name if a token hasn't been annotated yet.
+ * "USDT") with origin chain subtitles ("on Solana", "on Ethereum"). Fall back
+ * to the raw symbol/name if a token hasn't been annotated yet.
  *
  * Accepts `unknown | null | undefined` so callers can pass `fromTokenMeta`
  * directly without null-checking — the helper returns safe defaults.
