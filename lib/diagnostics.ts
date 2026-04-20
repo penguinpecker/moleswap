@@ -200,14 +200,24 @@ export function checkWalletInvariants(state: {
     });
   }
 
-  // Invariant 4: Solana origin should not have 0x address as origin
+  // Invariant 4: Solana origin should not have 0x address as origin.
+  // `origin` can be a string OR a wrapper object (PublicKey from @solana/web3.js
+  // exposes toString()/toBase58() — calling .startsWith on it crashes the
+  // interval every 10s, which is what we saw in prod logs). Coerce to string
+  // defensively before any string-ish check.
   if (state.originChain?.toLowerCase().startsWith("solana:")) {
-    const origin = (state.pushChainClient as any)?.universal?.origin;
-    if (origin?.startsWith("0x")) {
+    const originRaw = (state.pushChainClient as any)?.universal?.origin;
+    const originStr =
+      typeof originRaw === "string"
+        ? originRaw
+        : originRaw && typeof originRaw.toString === "function"
+          ? originRaw.toString()
+          : null;
+    if (originStr && originStr.startsWith("0x")) {
       invariants.push({
         name: "SOLANA_ORIGIN_FORMAT",
         passed: false,
-        detail: `Solana origin chain but origin address is EVM format: ${origin}`,
+        detail: `Solana origin chain but origin address is EVM format: ${originStr}`,
       });
     }
   }
@@ -250,15 +260,13 @@ export function measureAsync<T>(
  */
 export function analyzeError(
   error: any,
-  context?: { originChain?: string | null },
+  _context?: { originChain?: string | null },
 ): {
   category: string;
   suggestion: string;
   isRetryable: boolean;
 } {
   const msg = error?.message || String(error);
-  const isSolanaOrigin =
-    !!context?.originChain && context.originChain.toLowerCase().startsWith("solana:");
 
   if (msg.includes("universal") && msg.includes("null")) {
     return {
@@ -280,21 +288,27 @@ export function analyzeError(
   // surfaces it as "Signature request failed") for three common reasons:
   // (1) wallet is on Mainnet but Push gateway is on Devnet, (2) tx payload
   // overflows the 1232-byte Solana limit, (3) not enough Devnet SOL for fees.
-  // Without context the default "unknown" suggestion tells the user nothing
-  // useful, so we detect Solana-origin + this error shape and point to the
-  // concrete fix (Phantom Developer Settings → Testnet Mode → Devnet).
-  if (isSolanaOrigin && (
+  //
+  // We match on the error shape ALONE (not gated on isSolanaOrigin) because
+  // originChain resolution can lag behind the error — when the SDK wraps a
+  // Phantom failure into "Signature request failed", that string is itself a
+  // near-unique Solana-bridge fingerprint. Matching on just the shape means
+  // users reliably get the actionable fix instead of the raw SDK string.
+  const looksLikePhantomReject =
     msg.includes("Signature request failed") ||
-    msg.toLowerCase().includes("unexpected error")
-  )) {
+    msg.toLowerCase().includes("unexpected error");
+  if (looksLikePhantomReject) {
     return {
       category: "PHANTOM_REJECTED",
       suggestion:
-        "Phantom couldn't sign this transaction. Most likely: Phantom is on Mainnet " +
-        "but Push Chain's bridge lives on Solana Devnet. Open Phantom → Settings → " +
-        "Developer Settings → enable Testnet Mode, then switch the network to Solana " +
-        "Devnet. If you're already on Devnet, make sure you have enough SOL to cover " +
-        "the swap + fees (get free Devnet SOL at https://faucet.solana.com/).",
+        "Phantom couldn't sign this transaction.\n\n" +
+        "Most likely cause: Phantom is on Solana Mainnet, but Push Chain's bridge " +
+        "lives on Solana Devnet. Fix it:\n" +
+        "1. Open Phantom → Settings → Developer Settings\n" +
+        "2. Enable Testnet Mode\n" +
+        "3. Switch the Solana network to Devnet\n" +
+        "4. Get free Devnet SOL from https://faucet.solana.com/\n\n" +
+        "If you're already on Devnet, double-check you have enough SOL to cover the swap plus fees.",
       isRetryable: true,
     };
   }

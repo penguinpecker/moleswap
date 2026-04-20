@@ -27,10 +27,29 @@ export function usePushWallet() {
   // UEA isn't ready yet AND the origin is EVM (address is already EVM-compatible).
   const uea: string | null =
     (pushChainClient as any)?.universal?.account || null;
-  const origin: string | null =
-    walletCtx?.universalAccount?.address ||
-    (pushChainClient as any)?.universal?.origin ||
-    null;
+  // `origin` may be either a plain string (EVM hex / Solana base58) OR a
+  // wrapper object — e.g. Phantom sometimes hands back a PublicKey from
+  // @solana/web3.js that only exposes .toBase58() / .toString(). Downstream
+  // consumers (diagnostics invariant check, Solana Devnet balance preflight,
+  // RPC `getBalance` params) all assumed string and crashed with
+  // "origin.startsWith is not a function". Normalize here, once.
+  const coerceOrigin = (v: any): string | null => {
+    if (v == null) return null;
+    if (typeof v === "string") return v;
+    if (typeof v.toBase58 === "function") {
+      try { return v.toBase58(); } catch { /* fall through */ }
+    }
+    if (typeof v.toString === "function") {
+      const s = v.toString();
+      // Reject the generic "[object Object]" — that means toString wasn't overridden
+      if (s && s !== "[object Object]") return s;
+    }
+    return null;
+  };
+  const origin: string | null = coerceOrigin(
+    walletCtx?.universalAccount?.address ??
+      (pushChainClient as any)?.universal?.origin,
+  );
   const originChainRaw: string | null =
     walletCtx?.universalAccount?.chain || null;
   const isEvmOrigin = !originChainRaw ||
