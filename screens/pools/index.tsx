@@ -10,6 +10,7 @@ import {
   CONTRACTS, TOKENS, POOLS as AMM_POOLS,
   getTokenByAddress, findPool,
   getSwapQuote, getProvider,
+  getPoolDisplayInfo,
   AMM_ROUTER, AMM_FACTORY, PUSHCHAIN_CHAIN_ID,
   type TokenInfo, type PoolInfo,
 } from "@/lib/pushchain/amm";
@@ -1060,15 +1061,22 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
 
   return (
     <div className="flex flex-col gap-3">
-      {/* Header */}
+      {/* Header — pools are PRC-20 on Push Chain, so label them that way
+          (e.g. pSOL/WPC on Push Chain) rather than by the origin-asset name. */}
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <button onClick={onBack} className="font-family-ThaleahFat text-peach-300 cursor-pointer bg-transparent text-base">← BACK</button>
         <TokenPair t0={pool.token0} t1={pool.token1} size={36} />
         <div className="min-w-0 flex-1">
-          <h2 className="font-family-ThaleahFat truncate text-2xl tracking-wider text-white sm:text-3xl">{pool.name}</h2>
+          <h2 className="font-family-ThaleahFat truncate text-2xl tracking-wider text-white sm:text-3xl">
+            {getPoolDisplayInfo(pool.token0).symbol}/{getPoolDisplayInfo(pool.token1).symbol}
+          </h2>
           <div className="mt-0.5 flex flex-wrap gap-1">
-            <Badge chain={pool.token0.sourceChain} />
             <Badge chain="Push Chain" />
+            {pool.token0.sourceChain !== "Push Chain" && (
+              <span className="font-family-ThaleahFat rounded-sm bg-[#3A1F0E] px-1.5 py-px text-sm text-[#C49A6C]">
+                bridged from {pool.token0.sourceChain}
+              </span>
+            )}
             <span className="font-family-ThaleahFat rounded-sm bg-[#3A1F0E] px-1.5 py-px text-sm text-[#C49A6C]">FEE {(pool.fee / 10000).toFixed(2)}%</span>
           </div>
         </div>
@@ -1090,20 +1098,24 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
         ))}
       </div>
 
-      {/* Pooled amounts */}
+      {/* Pooled amounts — show PRC-20 name + "Push Chain" since the pool
+          holds the Push Chain representation, not the origin-chain asset. */}
       <div className="grid grid-cols-2 gap-2">
-        {[{ tok: pool.token0, reserve: pool.reserve0 }, { tok: pool.token1, reserve: pool.reserve1 }].map((item, i) => (
-          <div key={i} className="relative rounded px-3 py-3">
-            <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
-            <div className="flex items-center gap-2">
-              <TokenIcon token={item.tok} size={24} />
-              <span className="font-family-ThaleahFat text-base text-white">{item.tok.symbol}</span>
-              <Badge chain={item.tok.sourceChain} />
+        {[{ tok: pool.token0, reserve: pool.reserve0 }, { tok: pool.token1, reserve: pool.reserve1 }].map((item, i) => {
+          const poolDisp = getPoolDisplayInfo(item.tok);
+          return (
+            <div key={i} className="relative rounded px-3 py-3">
+              <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
+              <div className="flex items-center gap-2">
+                <TokenIcon token={item.tok} size={24} />
+                <span className="font-family-ThaleahFat text-base text-white">{poolDisp.symbol}</span>
+                <Badge chain="Push Chain" />
+              </div>
+              <div className="font-family-ThaleahFat mt-1 text-sm text-gray-500">POOLED AMOUNT</div>
+              <div className="font-family-ThaleahFat text-peach-300 text-xl">{item.reserve}</div>
             </div>
-            <div className="font-family-ThaleahFat mt-1 text-sm text-gray-500">POOLED AMOUNT</div>
-            <div className="font-family-ThaleahFat text-peach-300 text-xl">{item.reserve}</div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Liquidity Distribution Graph */}

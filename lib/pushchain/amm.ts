@@ -10,6 +10,7 @@ import {
   BRIDGE_HELPER_ABI,
   TICK_SPACINGS, MIN_TICK, MAX_TICK,
   getTokenByAddress, findPool, getSwappableTokens,
+  getDisplayInfo, getPoolDisplayInfo,
   type TokenInfo, type PoolInfo,
 } from "./contracts";
 import {
@@ -22,6 +23,7 @@ import {
 export {
   CONTRACTS, TOKENS, POOLS, PUSHCHAIN_RPC, PUSHCHAIN_CHAIN_ID,
   getTokenByAddress, findPool, getSwappableTokens,
+  getDisplayInfo, getPoolDisplayInfo,
   getBridgeInfoForPrc20, canAutoBridgeFrom,
   type TokenInfo, type PoolInfo, type Prc20BridgeInfo,
 };

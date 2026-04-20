@@ -10,6 +10,7 @@ import { getTokenByAddress, POOLS, CONTRACTS } from "@/lib/pushchain/contracts";
 import { estimateSwapDetails } from "@/lib/pushchain/amm";
 import { getOrCreateUser, getUserSwapHistory } from "@/lib/supabase/api";
 import { getTokenBalance } from "@/lib/wallet/walletClient";
+import { fetchOriginBalance } from "@/lib/wallet/originBalance";
 import { useRouter } from "next/navigation";
 import type { Address } from "viem";
 import Settings from "../settings";
@@ -1367,20 +1368,40 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
         return newState;
       });
 
-      // Fetch balances for all tokens in parallel (batched)
+      // Fetch balances for all tokens in parallel (batched).
+      //
+      // For bridgeable PRC-20s where the user is connected via the matching
+      // origin chain (Phantom user picking "SOL on Solana", Sepolia MetaMask
+      // picking "ETH on Ethereum", etc.), show the ORIGIN-CHAIN balance — the
+      // amount they actually hold in their wallet and can bridge in. Falling
+      // back to the Push-chain PRC-20 balance would surface the post-bridge
+      // amount (often 0 for first-time users) and confuse them.
+      const originPubkey = (pushWallet as any)?.origin || null;
+      const userOriginChain = (pushWallet as any)?.originChain || null;
       const balancePromises = tokensToFetch.map(async (token) => {
         if (cancelled) return null;
 
         const balanceKey = `${selectedNetwork}-${token.address}`;
 
         try {
-          const balance = await getTokenBalance(
-            walletAddress as Address,
-            token.address,
-            chainId,
-            token.decimals,
-            vmType,
-          );
+          // Try origin-chain balance first when the token is bridgeable and
+          // the user is connected via its origin chain. Returns null when
+          // inapplicable (different origin chain, non-bridgeable token, etc.).
+          let balance: string | null = null;
+          if ((token as any).bridgeable && originPubkey && userOriginChain) {
+            balance = await fetchOriginBalance(token.address, originPubkey, userOriginChain);
+          }
+          // Fall back to Push-chain PRC-20 balance — either the token isn't
+          // bridgeable from this origin, or the origin probe failed.
+          if (balance === null) {
+            balance = await getTokenBalance(
+              walletAddress as Address,
+              token.address,
+              chainId,
+              token.decimals,
+              vmType,
+            );
+          }
 
           if (!cancelled) {
             return { balanceKey, balance };
