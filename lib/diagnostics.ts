@@ -248,12 +248,17 @@ export function measureAsync<T>(
 /**
  * Check for common error patterns in error messages
  */
-export function analyzeError(error: any): {
+export function analyzeError(
+  error: any,
+  context?: { originChain?: string | null },
+): {
   category: string;
   suggestion: string;
   isRetryable: boolean;
 } {
   const msg = error?.message || String(error);
+  const isSolanaOrigin =
+    !!context?.originChain && context.originChain.toLowerCase().startsWith("solana:");
 
   if (msg.includes("universal") && msg.includes("null")) {
     return {
@@ -267,6 +272,29 @@ export function analyzeError(error: any): {
     return {
       category: "USER_REJECTED",
       suggestion: "User rejected the transaction in their wallet.",
+      isRetryable: true,
+    };
+  }
+
+  // Phantom on Solana throws generic "Unexpected error" (and the Push SDK
+  // surfaces it as "Signature request failed") for three common reasons:
+  // (1) wallet is on Mainnet but Push gateway is on Devnet, (2) tx payload
+  // overflows the 1232-byte Solana limit, (3) not enough Devnet SOL for fees.
+  // Without context the default "unknown" suggestion tells the user nothing
+  // useful, so we detect Solana-origin + this error shape and point to the
+  // concrete fix (Phantom Developer Settings → Testnet Mode → Devnet).
+  if (isSolanaOrigin && (
+    msg.includes("Signature request failed") ||
+    msg.toLowerCase().includes("unexpected error")
+  )) {
+    return {
+      category: "PHANTOM_REJECTED",
+      suggestion:
+        "Phantom couldn't sign this transaction. Most likely: Phantom is on Mainnet " +
+        "but Push Chain's bridge lives on Solana Devnet. Open Phantom → Settings → " +
+        "Developer Settings → enable Testnet Mode, then switch the network to Solana " +
+        "Devnet. If you're already on Devnet, make sure you have enough SOL to cover " +
+        "the swap + fees (get free Devnet SOL at https://faucet.solana.com/).",
       isRetryable: true,
     };
   }

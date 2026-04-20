@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { NavBar, BackgroundImage } from "../shared";
 import { RefreshCw, Plus, Minus, ArrowUpRight, ChevronDown, AlertTriangle, Loader2 } from "lucide-react";
 import { usePushWalletContext, usePushChainClient, PushUI } from "@pushchain/ui-kit";
@@ -13,6 +14,17 @@ import {
   type TokenInfo, type PoolInfo,
 } from "@/lib/pushchain/amm";
 import { ethers } from "ethers";
+
+/**
+ * Build a /dapp URL that pre-selects `from` → `to` on Push Chain. Used by the
+ * zero-balance CTA in PoolDetail — if the user lacks one of a pool's tokens,
+ * clicking "GET X" takes them to the swap page with the route already wired.
+ */
+function getSwapUrl(fromAddress: string, toAddress: string): string {
+  const cid = String(PUSHCHAIN_CHAIN_ID);
+  const params = new URLSearchParams({ from: fromAddress, fromChainId: cid, to: toAddress, toChainId: cid });
+  return `/dapp?${params.toString()}`;
+}
 
 const fmt = (n: number) => {
   if (!Number.isFinite(n) || isNaN(n)) return "0.00";
@@ -919,6 +931,7 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
 const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainClient }: {
   pool: PoolDisplay; onBack: () => void; address: string | null; isConnected: boolean; walletCtx: any; pushChainClient: any;
 }) => {
+  const router = useRouter();
   const [actionTab, setActionTab] = useState<"add" | "remove" | null>(null);
   const [amount0, setAmount0] = useState("");
   const [amount1, setAmount1] = useState("");
@@ -964,15 +977,16 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
     })();
   }, [pool]);
 
+  const priceUsable = Number.isFinite(pool.price) && pool.price > 0;
   const updateAmount1FromAmount0 = (val: string) => {
     setAmount0(val);
-    if (inputFocused === 0 && pool.price > 0 && val && !isNaN(Number(val)) && Number(val) > 0) {
+    if (inputFocused === 0 && priceUsable && val && !isNaN(Number(val)) && Number(val) > 0) {
       setAmount1((Number(val) * pool.price).toFixed(Math.min(pool.token1.decimals, 8)));
     } else if (!val) setAmount1("");
   };
   const updateAmount0FromAmount1 = (val: string) => {
     setAmount1(val);
-    if (inputFocused === 1 && pool.price > 0 && val && !isNaN(Number(val)) && Number(val) > 0) {
+    if (inputFocused === 1 && priceUsable && val && !isNaN(Number(val)) && Number(val) > 0) {
       setAmount0((Number(val) / pool.price).toFixed(Math.min(pool.token0.decimals, 8)));
     } else if (!val) setAmount0("");
   };
@@ -984,12 +998,33 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
   const hasInsufficientBalance = insufficientBalance0 || insufficientBalance1;
   const canSubmit = amount0 && amount1 && Number(amount0) > 0 && Number(amount1) > 0 && !hasInsufficientBalance && !loading;
 
-  const priceToTick = (p: number) => Math.round(Math.log(p) / Math.log(1.0001));
+  /**
+   * priceToTick: Math.log is -Infinity at 0 and NaN for negatives, which
+   * would propagate as bad ticks and silently revert the position mint.
+   * Fall back to 0 for any non-positive / non-finite input — caller already
+   * only calls this when price > 0, but we double-check defensively.
+   */
+  const priceToTick = (p: number) => {
+    if (!Number.isFinite(p) || p <= 0) return 0;
+    return Math.round(Math.log(p) / Math.log(1.0001));
+  };
   const tickSpacing = pool.fee === 500 ? 10 : pool.fee === 3000 ? 60 : pool.fee === 10000 ? 200 : 10;
   const nearestTick = (t: number) => Math.round(t / tickSpacing) * tickSpacing;
 
   const selectedTickLower = rangeMode === "full" ? -887272 : (minPrice && Number(minPrice) > 0 ? nearestTick(priceToTick(Number(minPrice))) : -887272);
   const selectedTickUpper = rangeMode === "full" ? 887272 : (maxPrice && Number(maxPrice) > 0 ? nearestTick(priceToTick(Number(maxPrice))) : 887272);
+
+  // Zero-balance CTA targets: swap from the OTHER pool token into the missing one.
+  const getMissingTokenSwapUrl = (missing: TokenInfo) => {
+    const other = missing.address.toLowerCase() === pool.token0.address.toLowerCase() ? pool.token1 : pool.token0;
+    return getSwapUrl(other.address, missing.address);
+  };
+  // Which pool token should the primary CTA try to acquire? The first one the
+  // user is short of (entered amount > balance, or balance is 0).
+  const missingToken: TokenInfo | null =
+    insufficientBalance0 ? pool.token0 :
+    insufficientBalance1 ? pool.token1 :
+    null;
 
   const handleAddLiquidity = async () => {
     if (!address || !canSubmit) return;
@@ -1015,8 +1050,8 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
 
   const getButtonLabel = () => {
     if (loading) return stepLabel || "PROCESSING...";
-    if (insufficientBalance0) return `INSUFFICIENT ${pool.token0.symbol}`;
-    if (insufficientBalance1) return `INSUFFICIENT ${pool.token1.symbol}`;
+    if (insufficientBalance0) return `GET ${pool.token0.symbol} →`;
+    if (insufficientBalance1) return `GET ${pool.token1.symbol} →`;
     if (!amount0 || Number(amount0) <= 0) return "ENTER AMOUNT";
     return "ADD LIQUIDITY";
   };
@@ -1230,9 +1265,13 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
               ))}
             </div>
 
-            <button onClick={handleAddLiquidity} disabled={!canSubmit}
+            <button
+              onClick={missingToken ? () => router.push(getMissingTokenSwapUrl(missingToken)) : handleAddLiquidity}
+              disabled={!missingToken && !canSubmit}
               className={`font-family-ThaleahFat w-full cursor-pointer rounded-lg px-6 py-3 text-xl tracking-wider transition-all hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50 ${
-                hasInsufficientBalance ? "bg-red-600 text-white shadow-[0px_-4px_0px_0px_#991B1B_inset]" : "bg-[#6DBB3E] text-white shadow-[0px_-4px_0px_0px_#4A8B29_inset,0px_4px_0px_0px_rgba(255,255,255,0.3)_inset]"
+                missingToken
+                  ? "bg-peach-500 text-black shadow-[0px_-4px_0px_0px_#C97E00_inset,0px_4px_0px_0px_rgba(255,212,122,0.6)_inset]"
+                  : "bg-[#6DBB3E] text-white shadow-[0px_-4px_0px_0px_#4A8B29_inset,0px_4px_0px_0px_rgba(255,255,255,0.3)_inset]"
               }`}>
               {getButtonLabel()}
             </button>

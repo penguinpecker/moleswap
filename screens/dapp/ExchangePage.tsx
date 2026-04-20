@@ -101,19 +101,44 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   // Swap history: loaded from Supabase when wallet connects
   const [swapHistory, setSwapHistory] = useState<any[]>([]);
   // ----- Load chains (kept) -----
+  // Deep-link support: `?from=<addr>&fromChainId=<id>&to=<addr>&toChainId=<id>`
+  // lets other screens (e.g. pools "GET pSOL" CTA) open the swap with the
+  // route already wired. Params are read from `window.location` to avoid
+  // Next.js Suspense requirements on `useSearchParams`.
   useEffect(() => {
     setLoadingChains(true);
     getChains()
       .then((c) => {
         setChains(c);
         if (c[0]) {
-          setFromChainId(String(c[0].id));
-          setToChainId(String(c[0].id));
-          const nativeAddr =
-            c[0].currency?.address ||
-            "0x0000000000000000000000000000000000000000";
-          setFromToken(nativeAddr);
-          setToToken("0x2971824Db68229D087931155C2b8bB820B275809");
+          // Sensible defaults
+          let initFromChainId = String(c[0].id);
+          let initToChainId = String(c[0].id);
+          let initFromToken =
+            c[0].currency?.address || "0x0000000000000000000000000000000000000000";
+          let initToToken = "0x2971824Db68229D087931155C2b8bB820B275809";
+
+          // URL overrides — only if the chain id appears in the loaded list
+          // (otherwise keep defaults so the picker doesn't show an empty chain).
+          if (typeof window !== "undefined") {
+            const sp = new URLSearchParams(window.location.search);
+            const urlFrom = sp.get("from");
+            const urlTo = sp.get("to");
+            const urlFromCid = sp.get("fromChainId");
+            const urlToCid = sp.get("toChainId");
+            const knownChain = (id: string | null) =>
+              !!id && c.some((ch) => String(ch.id) === id);
+
+            if (knownChain(urlFromCid)) initFromChainId = urlFromCid!;
+            if (knownChain(urlToCid)) initToChainId = urlToCid!;
+            if (urlFrom) initFromToken = urlFrom;
+            if (urlTo) initToToken = urlTo;
+          }
+
+          setFromChainId(initFromChainId);
+          setToChainId(initToChainId);
+          setFromToken(initFromToken);
+          setToToken(initToToken);
         }
       })
       .finally(() => setLoadingChains(false));

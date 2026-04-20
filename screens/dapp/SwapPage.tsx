@@ -293,6 +293,13 @@ export const SwapPage = ({
             });
             const json = await res.json();
             const lamports: number | undefined = json?.result?.value;
+            // Amount the user is trying to bridge, in SOL units (best-effort).
+            // fromTokenMeta.decimals may be undefined for some paths — default
+            // to 9 (SOL). Fee reserve is 5,000 lamports, generous for Devnet.
+            const amountHuman = Number(swapData.amount || "0");
+            const decimalsIn = swapData.fromTokenMeta?.decimals ?? 9;
+            const requiredLamports = Math.ceil(amountHuman * 10 ** decimalsIn) + 5_000;
+
             if (typeof lamports === "number" && lamports === 0) {
               throw new Error(
                 "Your Solana Devnet balance is 0. If Phantom shows a SOL balance, " +
@@ -300,6 +307,18 @@ export const SwapPage = ({
                   "Open Phantom → Settings → Developer Settings → enable Testnet Mode, " +
                   "then switch the network to Solana Devnet. Get free Devnet SOL from " +
                   "https://faucet.solana.com/"
+              );
+            }
+            if (
+              typeof lamports === "number" &&
+              Number.isFinite(requiredLamports) &&
+              lamports < requiredLamports
+            ) {
+              const haveSol = (lamports / 1e9).toFixed(6);
+              const needSol = (requiredLamports / 1e9).toFixed(6);
+              throw new Error(
+                `Not enough Devnet SOL to bridge. You have ${haveSol} SOL but need ~${needSol} SOL (including fees). ` +
+                  "Get free Devnet SOL from https://faucet.solana.com/ — and double-check Phantom is on Solana Devnet, not Mainnet."
               );
             }
           }
@@ -811,7 +830,14 @@ export const SwapPage = ({
       });
     } catch (error: any) {
       // ═══ DIAGNOSTICS: Analyze and log error ═══
-      const analysis = diagnostics.analyzeError(error);
+      // Pass originChain so analyzeError can detect Phantom "Signature request
+      // failed" (classic Solana mainnet/devnet cluster mismatch) and surface
+      // the concrete Phantom Testnet-Mode fix instead of a generic message.
+      const originChainForErr =
+        (pushWallet as any)?.originChain ||
+        (pushWallet as any)?.universalAccount?.chain ||
+        null;
+      const analysis = diagnostics.analyzeError(error, { originChain: originChainForErr });
       console.error("Swap execution error:", error);
       console.log("[MoleSwap:Diagnostics] Error analysis:", analysis);
 
@@ -822,7 +848,14 @@ export const SwapPage = ({
         durationMs: Date.now() - swapStartTime,
       });
 
-      setExecutionError(error?.message || "Failed to execute swap");
+      // Prefer the actionable suggestion (e.g. Phantom testnet-mode instructions)
+      // over the raw SDK error, which for Solana failures is almost always the
+      // unhelpful string "Signature request failed".
+      const userFacing =
+        analysis.category === "PHANTOM_REJECTED" || analysis.category === "WRONG_NETWORK"
+          ? analysis.suggestion
+          : error?.message || "Failed to execute swap";
+      setExecutionError(userFacing);
       setIsExecuting(false);
       setIsCompleted(false);
       onSwapComplete?.(); // Stop animation on error
