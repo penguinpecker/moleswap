@@ -9,6 +9,7 @@ import { NavBar } from "../shared";
 import { getQuests } from "@/lib/supabase/api";
 import { getQuestsWithProgress, progressQuestsForAction, type QuestWithProgress } from "@/lib/supabase/quests";
 import { usePushWalletContext, usePushChainClient, PushUI } from "@pushchain/ui-kit";
+import { usePushWallet } from "@/lib/pushchain/provider";
 import { getOrCreateUser } from "@/lib/supabase/api";
 import MoleWhack from "@/screens/MoleWhack";
 
@@ -152,7 +153,10 @@ export const QuestCardComponent = () => {
   const walletCtx = usePushWalletContext();
   const { pushChainClient } = usePushChainClient();
   const isConnected = walletCtx?.connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
-  const walletAddress = walletCtx?.universalAccount?.address || pushChainClient?.universal?.account || null;
+  // Use the `usePushWallet` hook which resolves the UEA hex address and
+  // filters out Solana base58 pubkeys that would otherwise corrupt DB writes
+  // (quest progress keyed by wallet_address).
+  const { address: walletAddress } = usePushWallet();
 
   const loadQuests = async () => {
     let uid: string | null = null;

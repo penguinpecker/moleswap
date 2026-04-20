@@ -4,6 +4,7 @@ import Image from "next/image";
 import { NavBar, BackgroundImage } from "../shared";
 import { RefreshCw, Plus, Minus, ArrowUpRight, ChevronDown, AlertTriangle, Loader2 } from "lucide-react";
 import { usePushWalletContext, usePushChainClient, PushUI } from "@pushchain/ui-kit";
+import { usePushWallet } from "@/lib/pushchain/provider";
 import {
   CONTRACTS, TOKENS, POOLS as AMM_POOLS,
   getTokenByAddress, findPool,
@@ -216,7 +217,11 @@ const PoolsContent = () => {
   const walletCtx = usePushWalletContext();
   const { pushChainClient } = usePushChainClient();
   const isConnected = walletCtx?.connectionStatus === PushUI.CONSTANTS.CONNECTION.STATUS.CONNECTED;
-  const address = walletCtx?.universalAccount?.address || pushChainClient?.universal?.account || null;
+  // Use the `usePushWallet` hook which properly resolves the UEA and filters
+  // out Solana base58 pubkeys that would otherwise leak into eth_getBalance /
+  // balanceOf calls and trigger ENS resolution errors on Push Chain (no ENS
+  // registry -> UNSUPPORTED_OPERATION -> silent UI failure in balance fetch).
+  const { address } = usePushWallet();
 
   const [tab, setTab] = useState<"markets" | "positions">("markets");
   const [selectedPool, setSelectedPool] = useState<PoolDisplay | null>(null);
