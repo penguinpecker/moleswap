@@ -823,24 +823,29 @@ export async function estimateSwapDetails(params: {
 
       const pool = findPool(actualIn, actualOut);
       const needsMultiHop = !pool && actualIn.toLowerCase() !== CONTRACTS.WPC.toLowerCase() && actualOut.toLowerCase() !== CONTRACTS.WPC.toLowerCase();
+      const isNativeOutPreview = params.tokenOut === ethers.ZeroAddress;
+      const inSym = getTokenByAddress(actualIn)?.symbol || "token";
+      const outSym = isNativeOutPreview ? "PC" : (getTokenByAddress(actualOut)?.symbol || "token");
 
       if (needsMultiHop) {
-        const poolA = findPool(actualIn, CONTRACTS.WPC);
-        const poolB = findPool(actualOut, CONTRACTS.WPC);
-        // Two hops + extra approve for WPC between hops
-        steps.push({ label: "Swap → WPC", gas: 180000 });
-        steps.push({ label: "Approve WPC", gas: 27000 });
-        steps.push({ label: "Swap WPC →", gas: 180000 });
+        // Multi-hop: single atomic SwapRouter call (exactInput or multicall for native out).
+        // Label reflects the actual single-step build in the executeSwap path below.
+        steps.push({ label: `Swap ${inSym} → ${outSym} (multi-hop)`, gas: isNativeOutPreview ? 260000 : 220000 });
       } else {
         const fee = pool?.fee || 500;
         const iface = new ethers.Interface(FEE_ROUTER_ABI);
-        const swapData = iface.encodeFunctionData("swapExactInputSingle", [
-          actualIn, actualOut, fee, amountIn, 0, Math.floor(Date.now() / 1000) + 1800, 0,
-        ]);
+        // Use the same method the executeSwap path will use so gas estimation is accurate.
+        const swapData = isNativeOutPreview
+          ? iface.encodeFunctionData("swapNativeOutput", [
+              actualIn, fee, amountIn, 0, Math.floor(Date.now() / 1000) + 1800, 0,
+            ])
+          : iface.encodeFunctionData("swapExactInputSingle", [
+              actualIn, actualOut, fee, amountIn, 0, Math.floor(Date.now() / 1000) + 1800, 0,
+            ]);
         const gas = await provider.estimateGas({
           from: params.recipient, to: CONTRACTS.MOLESWAP_FEE_ROUTER, data: swapData,
-        }).then(g => Number(g)).catch(() => 150000);
-        steps.push({ label: "Swap tokens", gas });
+        }).then(g => Number(g)).catch(() => isNativeOutPreview ? 180000 : 150000);
+        steps.push({ label: isNativeOutPreview ? `Swap ${inSym} → PC` : "Swap tokens", gas });
       }
     }
 
@@ -1258,22 +1263,52 @@ export async function executeSwap(params: {
         label: "Approve " + (getTokenByAddress(actualIn)?.symbol || "token"),
       });
 
-      // Single `exactInput` call — atomic multi-hop
-      steps.push({
-        type: "swap",
-        to: CONTRACTS.SWAP_ROUTER,
-        value: "0",
-        data: swapRouterIface.encodeFunctionData("exactInput", [
+      if (isNativeOut) {
+        // ── Multi-hop with native PC out:
+        // Use SwapRouter.multicall([exactInput(recipient=SWAP_ROUTER), unwrapWETH9(min, user)]).
+        // This keeps the WPC inside the SwapRouter after the final hop, then
+        // unwraps it and sends native PC to the user — all atomic in 1 call.
+        // Prior to this branch, the final hop deposited WPC into the UEA and
+        // no unwrap fired, leaving WPC stuck.
+        const exactInputCall = swapRouterIface.encodeFunctionData("exactInput", [
           {
             path,
-            recipient: params.recipient,
+            // SwapRouter must hold the WPC so it can unwrap in the next call.
+            recipient: CONTRACTS.SWAP_ROUTER,
             deadline: BigInt(deadline),
             amountIn,
             amountOutMinimum: amountOutMin,
           },
-        ]),
-        label: `Swap ${getTokenByAddress(actualIn)?.symbol || "A"} → ${getTokenByAddress(actualOut)?.symbol || "B"} (multi-hop)`,
-      });
+        ]);
+        const unwrapCall = swapRouterIface.encodeFunctionData("unwrapWETH9", [
+          amountOutMin,
+          params.recipient,
+        ]);
+        steps.push({
+          type: "swap",
+          to: CONTRACTS.SWAP_ROUTER,
+          value: "0",
+          data: swapRouterIface.encodeFunctionData("multicall", [[exactInputCall, unwrapCall]]),
+          label: `Swap ${getTokenByAddress(actualIn)?.symbol || "A"} → PC (multi-hop)`,
+        });
+      } else {
+        // Single `exactInput` call — atomic multi-hop, token recipient = user
+        steps.push({
+          type: "swap",
+          to: CONTRACTS.SWAP_ROUTER,
+          value: "0",
+          data: swapRouterIface.encodeFunctionData("exactInput", [
+            {
+              path,
+              recipient: params.recipient,
+              deadline: BigInt(deadline),
+              amountIn,
+              amountOutMinimum: amountOutMin,
+            },
+          ]),
+          label: `Swap ${getTokenByAddress(actualIn)?.symbol || "A"} → ${getTokenByAddress(actualOut)?.symbol || "B"} (multi-hop)`,
+        });
+      }
     } else {
       // ── Single-hop: direct pool ──
       const tokenToApprove = isNativeIn ? CONTRACTS.WPC : params.tokenIn;
@@ -1287,17 +1322,40 @@ export async function executeSwap(params: {
         label: "Approve " + (getTokenByAddress(tokenToApprove)?.symbol || "token"),
       });
 
-      // Swap
       const poolFee = params.fee || directPool?.fee || 500;
-      steps.push({
-        type: "swap",
-        to: CONTRACTS.MOLESWAP_FEE_ROUTER,
-        value: "0",
-        data: feeRouterIface.encodeFunctionData("swapExactInputSingle", [
-          actualIn, actualOut, poolFee, amountIn, amountOutMin, deadline, 0,
-        ]),
-        label: "Swap tokens",
-      });
+
+      if (isNativeOut) {
+        // ── Native PC out: use swapNativeOutput so FeeRouter swaps to WPC
+        // and atomically unwraps + forwards native PC to msg.sender. This
+        // avoids leaving wrapped WPC stuck in the user's UEA (which was the
+        // bug for pSOL→PC / pETH→PC / pUSDT→PC swaps prior to this fix).
+        // FeeRouter.swapNativeOutput signature:
+        //   (tokenIn, poolFee, amountIn, amountOutMinimum, deadline, sqrtPriceLimitX96)
+        //   -> exactInputSingle(recipient=this) -> WPC.withdraw -> call{value: ...}
+        // Works identically whether executed inside a cross-chain multicall
+        // (msg.sender = UEA via MULTICALL_TARGET_ADDRESS=0x0) or sequentially
+        // (msg.sender = UEA direct), so PC always lands with the user.
+        steps.push({
+          type: "swap",
+          to: CONTRACTS.MOLESWAP_FEE_ROUTER,
+          value: "0",
+          data: feeRouterIface.encodeFunctionData("swapNativeOutput", [
+            actualIn, poolFee, amountIn, amountOutMin, deadline, 0,
+          ]),
+          label: `Swap ${getTokenByAddress(actualIn)?.symbol || "token"} → PC`,
+        });
+      } else {
+        // Token out — standard swap
+        steps.push({
+          type: "swap",
+          to: CONTRACTS.MOLESWAP_FEE_ROUTER,
+          value: "0",
+          data: feeRouterIface.encodeFunctionData("swapExactInputSingle", [
+            actualIn, actualOut, poolFee, amountIn, amountOutMin, deadline, 0,
+          ]),
+          label: "Swap tokens",
+        });
+      }
     }
 
     console.log("[MoleSwap] executeSwap → executeSteps:", {
