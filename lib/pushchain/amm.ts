@@ -1164,10 +1164,33 @@ export async function executeSwap(params: {
       params.tokenOut === ethers.ZeroAddress;
     if (isUnwrap) {
       const wpcIface = new ethers.Interface(["function withdraw(uint256)"]);
-      const data = wpcIface.encodeFunctionData("withdraw", [amountIn]);
+      const withdrawData = wpcIface.encodeFunctionData("withdraw", [amountIn]);
       const steps: SwapStep[] = [
-        { type: "swap", to: CONTRACTS.WPC, value: "0", data, label: "Unwrap WPC → PC" },
+        { type: "swap", to: CONTRACTS.WPC, value: "0", data: withdrawData, label: "Unwrap WPC → PC" },
       ];
+
+      // Custom-recipient support for the unwrap shortcut. WPC.withdraw only
+      // returns native PC to msg.sender (= UEA); there's no recipient param.
+      // If the user wants the PC delivered to a different wallet, append a
+      // second step that forwards the UEA's freshly-received PC to the custom
+      // address via a plain value-transfer call. Keeps the unwrap short-circuit
+      // atomic-ish (one multicall bundle / two sequential sigs) without
+      // needing a `withdrawTo` variant on WPC.
+      const unwrapCustomRecipient =
+        params.outputRecipient &&
+        params.outputRecipient.toLowerCase() !== params.recipient.toLowerCase()
+          ? params.outputRecipient
+          : null;
+      if (unwrapCustomRecipient) {
+        steps.push({
+          type: "swap",
+          to: unwrapCustomRecipient,
+          value: amountIn,
+          data: "0x",
+          label: `Forward PC → ${unwrapCustomRecipient.slice(0, 6)}…${unwrapCustomRecipient.slice(-4)}`,
+        });
+      }
+
       const res = await executeSteps({
         pushChainClient: client,
         userAddress: params.recipient,
