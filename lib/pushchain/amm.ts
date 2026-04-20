@@ -406,36 +406,83 @@ export async function executeSteps(
           : `Bridge & ${swapSteps.length}-hop swap (1-sig)`;
         onStep(0, combinedLabel, "signing");
 
-        // Extract swap parameters from the first swap step
-        // The helper's bridgeAndSwap matches FeeRouter's swapExactInputSingle signature
-        const swapData = swapSteps[0].data;
+        // The last swap step is always the actual swap call — earlier ones are
+        // approves. The helper does its own approval internally, so we only
+        // need to decode the real swap calldata.
+        const finalSwap = swapSteps[swapSteps.length - 1];
+        const swapData = finalSwap.data;
         const feeRouterIface = new ethers.Interface(FEE_ROUTER_ABI);
-        let helperCalldata: string;
+        const swapRouterIface = new ethers.Interface(SWAP_ROUTER_ABI);
+        let helperCalldata: string | null = null;
 
+        // Decode and map the swap to the appropriate helper function.
+        // All 4 helper variants are deployed on MoleSwapBridgeHelper:
+        //   bridgeAndSwap          — token → token, single-hop (via FeeRouter)
+        //   bridgeAndSwapToNative  — token → PC,    single-hop (unwrap at end)
+        //   bridgeAndSwapMultiHop  — token → token, multi-hop  (via SwapRouter)
+        //   bridgeNativeAndSwap    — native in (not used here; bridge already gives PRC20)
         try {
-          // Decode FeeRouter.swapExactInputSingle call to extract params
-          const decoded = feeRouterIface.parseTransaction({ data: swapData });
-          if (decoded && decoded.name === "swapExactInputSingle") {
-            const [tokenIn, tokenOut, poolFee, amountIn, amountOutMin, deadline] = decoded.args;
-            // Encode bridgeAndSwap call for the helper
+          // Try FeeRouter methods first (single-hop paths)
+          const feeDecoded = (() => {
+            try { return feeRouterIface.parseTransaction({ data: swapData }); }
+            catch { return null; }
+          })();
+
+          if (feeDecoded?.name === "swapExactInputSingle") {
+            // token → token, single-hop
+            const [tokenIn, tokenOut, poolFee, amountIn, amountOutMin, deadline] = feeDecoded.args;
             helperCalldata = bridgeHelperIface.encodeFunctionData("bridgeAndSwap", [
-              tokenIn,
-              tokenOut,
-              poolFee,
-              amountIn,
-              amountOutMin,
-              userAddress, // recipient
-              deadline,
+              tokenIn, tokenOut, poolFee, amountIn, amountOutMin, userAddress, deadline,
+            ]);
+          } else if (feeDecoded?.name === "swapNativeOutput") {
+            // token → PC, single-hop — the fix for stuck-WPC bug (Solana users)
+            const [tokenIn, poolFee, amountIn, amountOutMin, deadline] = feeDecoded.args;
+            helperCalldata = bridgeHelperIface.encodeFunctionData("bridgeAndSwapToNative", [
+              tokenIn, poolFee, amountIn, amountOutMin, userAddress, deadline,
             ]);
           } else {
-            // Multi-hop: use bridgeAndSwapMultiHop
-            // For now, fall through to sequential path
-            throw new Error("Multi-hop helper not yet encoded");
+            // Not a FeeRouter call — check if it's a SwapRouter multi-hop
+            const srDecoded = (() => {
+              try { return swapRouterIface.parseTransaction({ data: swapData }); }
+              catch { return null; }
+            })();
+
+            if (srDecoded?.name === "exactInput") {
+              // Multi-hop token → token.
+              // The on-chain helper's `bridgeAndSwapMultiHop` uses tokenIn for
+              // balanceOf() + allowance checks, so we must extract the real
+              // tokenIn and tokenOut from the path bytes.
+              //
+              // Path format (packed): tokenIn(20) | fee(3) | WPC(20) | fee(3) | tokenOut(20)
+              const params = srDecoded.args[0];
+              const pathHex = (params.path as string).startsWith("0x")
+                ? (params.path as string).slice(2)
+                : (params.path as string);
+              if (pathHex.length < 40 * 2 + 6 * 2 + 40) {
+                throw new Error(`Multi-hop path too short: ${pathHex.length} chars`);
+              }
+              const tokenInFromPath = "0x" + pathHex.slice(0, 40);
+              const tokenOutFromPath = "0x" + pathHex.slice(-40);
+              helperCalldata = bridgeHelperIface.encodeFunctionData("bridgeAndSwapMultiHop", [
+                tokenInFromPath,
+                tokenOutFromPath,
+                params.path,
+                params.amountIn,
+                params.amountOutMinimum,
+                userAddress,
+                params.deadline,
+              ]);
+            } else if (srDecoded?.name === "multicall") {
+              // Multi-hop + native out (exactInput + unwrapWETH9 wrapped in SR.multicall).
+              // The deployed helper has no single function for this combo, so fall back
+              // to sequential. Functionally still works (user gets PC), just more sigs.
+              throw new Error("multi-hop native-out not yet supported in helper");
+            } else {
+              throw new Error(`Unsupported swap call for helper: ${feeDecoded?.name || srDecoded?.name || "unknown"}`);
+            }
           }
-        } catch {
-          // Fallback to sequential if decoding fails
-          console.warn("[MoleSwap] Helper encoding failed, falling back to sequential");
-          // Re-run as sequential (recursive call with helper disabled)
+        } catch (err) {
+          console.warn("[MoleSwap] Helper encoding failed, falling back to sequential:", (err as Error)?.message);
           const sequentialResult = await executeStepsSequential(
             pushChainClient, userAddress, steps, originChain, onStep, pollReceipt
           );
@@ -443,6 +490,15 @@ export async function executeSteps(
         }
 
         // Send via helper: gateway mints TO helper, helper swaps
+        if (!helperCalldata) {
+          // Should be unreachable — the try block above either assigns or throws.
+          // Kept as defense-in-depth so we never silently send `null` as calldata.
+          console.warn("[MoleSwap] helperCalldata unexpectedly null, falling back to sequential");
+          const sequentialResult = await executeStepsSequential(
+            pushChainClient, userAddress, steps, originChain, onStep, pollReceipt
+          );
+          return sequentialResult;
+        }
         const funds = { amount: BigInt(bridgeStep.amount), token: bridgeStep.token };
         const tx = await pushChainClient.universal.sendTransaction({
           to: CONTRACTS.MOLESWAP_BRIDGE_HELPER,
