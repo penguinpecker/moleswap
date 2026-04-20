@@ -114,11 +114,31 @@ export const MULTICALL_SELECTOR = "0x1749e1e3" as const;
 export const UEA_MULTICALL_SELECTOR = "0x2cc2842d" as const;
 
 // ─── BRIDGE HELPER (Solana 1-sig optimization) ───────────────────────────────
-// When deployed, this contract bundles wrap+approve+swap into a single function
-// call that fits Solana's 1232-byte tx buffer (a la RamenFi's
-// depositPRC20WithAutoSwap, 0x780ad827). Intent: 1-signature cross-chain swaps
-// for Phantom users.
+// This contract bundles wrap+approve+swap into a single call (like RamenFi's
+// depositPRC20WithAutoSwap, selector 0x780ad827). It IS deployed on Push Chain
+// at CONTRACTS.MOLESWAP_BRIDGE_HELPER with all 4 selectors in bytecode, and
+// callable on-chain (see scripts/verify-bridge-helper.mjs — staticcall returns
+// the expected "INSUFFICIENT_BRIDGED_AMOUNT" revert when invoked cold).
+//
+// BUT: the Push SDK's Solana-origin relay cannot dispatch to this helper.
+// We tried two dispatch modes:
+//   1. `to: HELPER, funds, data: calldata`            → Phantom "Unexpected error"
+//   2. `to: MULTICALL_TARGET_ADDRESS, funds, data:[{to:HELPER,...}]`
+//                                                      → Phantom "Unexpected error"
+// Only the sequential multi-sig path (`to: FeeRouter, data: swap`) works for
+// Solana origins. RamenFi's 1-sig flow presumably relies on a target that is
+// whitelisted or pre-registered in Push's Solana gateway; a freshly-deployed
+// third-party helper is not. Until that story changes on the Push side we
+// must use the N-sig sequential path — which is exactly what worked before
+// the helper was introduced.
+//
+// Flip NEXT_PUBLIC_USE_SOL_HELPER=1 to re-enable the helper path for
+// experimentation once the gateway supports it.
+const BRIDGE_HELPER_ENABLED =
+  typeof process !== "undefined" &&
+  process.env?.NEXT_PUBLIC_USE_SOL_HELPER === "1";
 const BRIDGE_HELPER_DEPLOYED =
+  BRIDGE_HELPER_ENABLED &&
   CONTRACTS.MOLESWAP_BRIDGE_HELPER !== "0x0000000000000000000000000000000000000000";
 const bridgeHelperIface = new ethers.Interface(BRIDGE_HELPER_ABI);
 export const MIGRATION_SELECTOR = "0xcac656d6" as const;

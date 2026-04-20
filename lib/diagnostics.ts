@@ -284,16 +284,14 @@ export function analyzeError(
     };
   }
 
-  // Phantom on Solana throws generic "Unexpected error" (and the Push SDK
-  // surfaces it as "Signature request failed") for three common reasons:
-  // (1) wallet is on Mainnet but Push gateway is on Devnet, (2) tx payload
-  // overflows the 1232-byte Solana limit, (3) not enough Devnet SOL for fees.
-  //
-  // We match on the error shape ALONE (not gated on isSolanaOrigin) because
-  // originChain resolution can lag behind the error — when the SDK wraps a
-  // Phantom failure into "Signature request failed", that string is itself a
-  // near-unique Solana-bridge fingerprint. Matching on just the shape means
-  // users reliably get the actionable fix instead of the raw SDK string.
+  // Phantom on Solana throws a generic "Unexpected error" (the Push SDK wraps
+  // it as "Signature request failed") for any instruction it can't simulate.
+  // Common real-world causes we've seen: (1) wallet is on Mainnet, not Devnet;
+  // (2) not enough Devnet SOL to cover bridge + fees. We no longer point the
+  // user at one specific cause because both happen in production and guessing
+  // wrong sends them down the wrong rabbit-hole. The message below gives the
+  // two concrete checks; the preflight in SwapPage will throw a more specific
+  // error first whenever it can verify the real cause.
   const looksLikePhantomReject =
     msg.includes("Signature request failed") ||
     msg.toLowerCase().includes("unexpected error");
@@ -301,14 +299,13 @@ export function analyzeError(
     return {
       category: "PHANTOM_REJECTED",
       suggestion:
-        "Phantom couldn't sign this transaction.\n\n" +
-        "Most likely cause: Phantom is on Solana Mainnet, but Push Chain's bridge " +
-        "lives on Solana Devnet. Fix it:\n" +
-        "1. Open Phantom → Settings → Developer Settings\n" +
-        "2. Enable Testnet Mode\n" +
-        "3. Switch the Solana network to Devnet\n" +
-        "4. Get free Devnet SOL from https://faucet.solana.com/\n\n" +
-        "If you're already on Devnet, double-check you have enough SOL to cover the swap plus fees.",
+        "Phantom couldn't sign the transaction. Two common causes:\n\n" +
+        "1. Phantom is on Solana Mainnet — Push Chain's bridge only works with " +
+        "Solana Devnet. Toggle Phantom → Settings → Developer Settings → Testnet " +
+        "Mode ON, then pick Solana Devnet as the network.\n\n" +
+        "2. Not enough Devnet SOL to cover the bridge + fees. Get free Devnet " +
+        "SOL from https://faucet.solana.com/.\n\n" +
+        "If both look fine, reconnect Phantom and try again.",
       isRetryable: true,
     };
   }
