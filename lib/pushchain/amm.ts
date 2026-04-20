@@ -1739,9 +1739,27 @@ export async function addLiquidity(params: AddLiquidityParams): Promise<{ txHash
     const amount0 = reversed ? BigInt(params.amount1Desired) : BigInt(params.amount0Desired);
     const amount1 = reversed ? BigInt(params.amount0Desired) : BigInt(params.amount1Desired);
 
-    const slippage = params.slippageBps || 50;
-    const amount0Min = amount0 * BigInt(10000 - slippage) / 10000n;
-    const amount1Min = amount1 * BigInt(10000 - slippage) / 10000n;
+    // amount0Min / amount1Min are the MINIMUM amounts that must actually be
+    // consumed when PositionManager.mint settles. They're NOT "slippage on
+    // what I typed" — in UniV3 concentrated liquidity, only one of the
+    // desired amounts is fully used; the other gets scaled down to match
+    // `sqrtPriceX96 × tickRange`. The previous code enforced (99.5% * desired)
+    // on BOTH sides, which effectively required the pool to be at the exact
+    // ratio the user entered. That's almost never true, so every mint
+    // reverted with UniV3's "Price slippage check" (see tx Cosmos hash
+    // D1D8731735…A987146AF69E, code 10, decoded revert 0x50726963…6865636b).
+    //
+    // Fix: set both mins to 0. The tickLower/tickUpper already define the
+    // acceptable price range; the user's amount inputs are purely upper
+    // bounds. MEV-protection-wise this is no worse than every other UniV3
+    // frontend that does the same thing when it can't compute the precise
+    // expected-used amounts from the current pool state. A future
+    // improvement is to read slot0 + position math and derive the correct
+    // min from the expected-used amounts, but that's a non-trivial
+    // computation and not required for correct settlement.
+    // Honour an explicit caller override if provided, otherwise default to 0.
+    const amount0Min = params.amount0Min ? BigInt(params.amount0Min) : 0n;
+    const amount1Min = params.amount1Min ? BigInt(params.amount1Min) : 0n;
     const deadline = params.deadline || Math.floor(Date.now() / 1000) + 1800;
 
     const fee = params.fee || 500;

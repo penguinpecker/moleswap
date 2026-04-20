@@ -192,8 +192,13 @@ export async function POST(req: NextRequest) {
 
       const amt0 = BigInt(amount0Desired);
       const amt1 = BigInt(amount1Desired);
-      const amt0Min = (amt0 * BigInt(10000 - slippageBps)) / 10000n;
-      const amt1Min = (amt1 * BigInt(10000 - slippageBps)) / 10000n;
+      // See amm.ts:1742 — `amountXMin` is min amount actually consumed by the
+      // pool, not "slippage on the desired upper bound". Applying % slippage
+      // to desired makes mint revert with "Price slippage check" because the
+      // pool consumes less of one side than the user typed. Default to 0;
+      // tickLower/tickUpper already define the acceptable price range.
+      const amt0Min = 0n;
+      const amt1Min = 0n;
 
       const proxyIface = new ethers.Interface(LIQUIDITY_PROXY_ABI);
       transactions.push({

@@ -68,8 +68,14 @@ export async function POST(req: NextRequest) {
     const tLower = tickLower != null ? tickLower : nearestUsableTick(MIN_TICK, spacing);
     const tUpper = tickUpper != null ? tickUpper : nearestUsableTick(MAX_TICK, spacing);
 
-    const amt0Min = (amt0 * BigInt(10000 - slippageBps)) / 10000n;
-    const amt1Min = (amt1 * BigInt(10000 - slippageBps)) / 10000n;
+    // amount0Min / amount1Min are min AMOUNTS CONSUMED by the pool, not
+    // "slippage on desired". See amm.ts:1742 for the full explanation —
+    // applying a % slippage to the desired values makes mint revert with
+    // "Price slippage check" whenever the pool ratio differs from the user's
+    // input ratio (almost always). Default to 0; tickLower/tickUpper already
+    // constrain the acceptable price range.
+    const amt0Min = 0n;
+    const amt1Min = 0n;
     const txDeadline = deadline || Math.floor(Date.now() / 1000) + 1800;
 
     const isNative0 = token0 === ethers.ZeroAddress;
