@@ -313,11 +313,17 @@ const PoolsContent = () => {
         />
 
         <div className="relative z-50 mt-8 flex justify-center gap-2 px-2 pt-3 sm:mt-12 sm:gap-4 sm:px-4">
-          <button className={tabClass("markets")} onClick={() => setTab("markets")}>
+          {/* Clicking a tab while a pool is opened must also close the detail
+              view — otherwise PoolDetail keeps rendering (see the `selectedPool
+              ? <PoolDetail/> : …` below) and the tab switch looks like a dead
+              click. `clearDetail()` drops the selected pool alongside the tab
+              change so users can navigate between Markets/Positions from ANY
+              pool's detail page. */}
+          <button className={tabClass("markets")} onClick={() => { setTab("markets"); setSelectedPool(null); }}>
             <svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" className="mr-1 inline sm:mr-2" style={{imageRendering:"pixelated"}}><rect x="3" y="4" width="8" height="2" fill="#FFD47A"/><rect x="3" y="4" width="8" height="1" fill="#FFF3B0"/><rect x="10" y="2" width="2" height="2" fill="#FFD47A"/><rect x="10" y="6" width="2" height="2" fill="#FFD47A"/><rect x="12" y="4" width="2" height="2" fill="#FFD47A"/><rect x="12" y="4" width="2" height="1" fill="#FFF3B0"/><rect x="5" y="10" width="8" height="2" fill="#E8A849"/><rect x="5" y="10" width="8" height="1" fill="#FFD47A"/><rect x="4" y="8" width="2" height="2" fill="#E8A849"/><rect x="4" y="12" width="2" height="2" fill="#E8A849"/><rect x="2" y="10" width="2" height="2" fill="#E8A849"/><rect x="2" y="10" width="2" height="1" fill="#FFD47A"/></svg>
             MARKETS
           </button>
-          <button className={tabClass("positions")} onClick={() => setTab("positions")}>
+          <button className={tabClass("positions")} onClick={() => { setTab("positions"); setSelectedPool(null); }}>
             <svg width="20" height="20" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg" className="mr-1 inline sm:mr-2" style={{imageRendering:"pixelated"}}><rect x="3" y="11" width="1" height="1" fill="#8B5E3C"/><rect x="4" y="10" width="1" height="1" fill="#8B5E3C"/><rect x="5" y="9" width="1" height="1" fill="#A0704A"/><rect x="6" y="8" width="1" height="1" fill="#A0704A"/><rect x="7" y="7" width="1" height="1" fill="#A0704A"/><rect x="2" y="12" width="1" height="1" fill="#7A5030"/><rect x="1" y="13" width="1" height="1" fill="#7A5030"/><rect x="8" y="6" width="1" height="1" fill="#C0C0C0"/><rect x="9" y="5" width="1" height="1" fill="#D8D8D8"/><rect x="10" y="4" width="1" height="1" fill="#E8E8E8"/><rect x="11" y="3" width="1" height="1" fill="#F0F0F0"/><rect x="12" y="2" width="2" height="1" fill="#E8E8E8"/><rect x="13" y="3" width="1" height="1" fill="#D8D8D8"/><rect x="12" y="4" width="1" height="1" fill="#C0C0C0"/><rect x="10" y="8" width="2" height="2" fill="#FFD47A"/><rect x="10" y="8" width="1" height="1" fill="#FFF3B0"/><rect x="12" y="10" width="2" height="2" fill="#E8A849"/><rect x="12" y="10" width="1" height="1" fill="#FFD47A"/><rect x="8" y="11" width="2" height="1" fill="#E8A849"/><rect x="9" y="12" width="1" height="1" fill="#FFD47A"/></svg>
             POSITIONS
           </button>
