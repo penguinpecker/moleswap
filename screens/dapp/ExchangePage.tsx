@@ -149,6 +149,19 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     setMounted(true);
   }, []);
 
+  // Session-owner guard. When the user has connected (or is connecting) via the
+  // Push Universal Wallet modal, Push owns the session — any direct read of
+  // window.ethereum / WalletConnect would stomp the resolved UEA with a stale
+  // MetaMask address (since MetaMask wins the EIP-1193 injection race whenever
+  // both MM and Phantom are installed). We mirror the flag into a ref so the
+  // mount-only effects below can consult the *current* value without capturing
+  // stale closures.
+  const pushOwnsSessionRef = useRef(false);
+  useEffect(() => {
+    pushOwnsSessionRef.current =
+      pushWallet.isConnected || pushWallet.isConnecting;
+  }, [pushWallet.isConnected, pushWallet.isConnecting]);
+
   // Sync wallet address from PushChain context
   useEffect(() => {
     if (pushWallet.isConnected && pushWallet.address) {
@@ -162,6 +175,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       }
       setWalletAddress(pushWallet.address);
       setRecipientAddress(pushWallet.address);
+      setShowReceive(true);
     }
     if (!pushWallet.isConnected && walletAddress) {
       diagnostics.logSessionEvent("PushChain wallet disconnected", {
@@ -169,6 +183,8 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       });
       setWalletAddress(null);
       setRecipientAddress(null);
+      setShowReceive(false);
+      setFromTokenBalance(null);
       setSwapHistory([]);
       try { window.sessionStorage?.removeItem("moleswap_history"); } catch {}
     }
@@ -224,7 +240,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
             method: "eth_accounts",
           });
           const first = accounts?.[0];
-          if (isEvmAddress(first)) {
+          // Skip if Push owns the session — eth_accounts is a silent read that
+          // would otherwise stomp the resolved UEA with MetaMask's address
+          // during the Phantom → UEA resolution window.
+          if (isEvmAddress(first) && !pushOwnsSessionRef.current) {
             setWalletAddress(first);
             setRecipientAddress(first); // Initialize recipient to wallet address
             setShowReceive(true);
@@ -240,6 +259,11 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
       // Listen for account changes
       if (eth?.on) {
         const onAccountsChanged = (accounts: string[]) => {
+          // Ignore MetaMask account events while Push owns the session —
+          // otherwise switching MM accounts would silently overwrite the
+          // Phantom user's UEA.
+          if (pushOwnsSessionRef.current) return;
+
           const first = accounts?.[0];
           // CRITICAL: Clear swap history when wallet changes to prevent cross-wallet data leakage
           diagnostics.logSessionEvent("MetaMask accountsChanged", {
@@ -286,6 +310,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
 
           // Listen for account changes from WalletConnect
           provider.on("accountsChanged", (accounts: string[]) => {
+            // Ignore WC account events while Push owns the session.
+            if (pushOwnsSessionRef.current) return;
+
             const first = accounts?.[0];
             // CRITICAL: Clear swap history when wallet changes to prevent cross-wallet data leakage
             diagnostics.logSessionEvent("WalletConnect accountsChanged", {
@@ -307,6 +334,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
 
           // Listen for disconnect events from WalletConnect
           provider.on("disconnect", () => {
+            // A WC-session disconnect shouldn't clobber an active Push session.
+            if (pushOwnsSessionRef.current) return;
+
             diagnostics.logSessionEvent("WalletConnect disconnected");
             setWalletAddress(null);
             setRecipientAddress(null);
@@ -323,9 +353,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
             // Optionally refresh chain-specific data here
           });
 
-          // Check if already connected via WalletConnect
+          // Check if already connected via WalletConnect — but only adopt the
+          // WC address if Push isn't already the session owner.
           const wcFirst = provider.accounts?.[0];
-          if (isEvmAddr(wcFirst)) {
+          if (isEvmAddr(wcFirst) && !pushOwnsSessionRef.current) {
             setWalletAddress(wcFirst);
             setRecipientAddress(wcFirst);
             setShowReceive(true);
