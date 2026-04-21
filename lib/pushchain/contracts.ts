@@ -211,6 +211,10 @@ export const SWAP_ROUTER_ABI = [
   "function exactInput(tuple(bytes path, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum) params) payable returns (uint256 amountOut)",
   "function exactOutputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountOut, uint256 amountInMaximum, uint160 sqrtPriceLimitX96) params) payable returns (uint256 amountIn)",
   "function multicall(bytes[] data) payable returns (bytes[] results)",
+  // PeripheryPaymentsExtended — needed when bundling unwrap/sweep/refund inside a SwapRouter.multicall
+  "function unwrapWETH9(uint256 amountMinimum, address recipient) payable",
+  "function sweepToken(address token, uint256 amountMinimum, address recipient) payable",
+  "function refundETH() payable",
 ] as const;
 
 export const ERC20_ABI = [
