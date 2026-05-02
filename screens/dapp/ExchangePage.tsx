@@ -2095,10 +2095,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                         )}
                       </div>
                       <p className="font-family-ThaleahFat text-sm font-bold tracking-wider text-[#EEEEEE] uppercase sm:text-xl lg:text-3xl truncate">
-                        {toChain?.displayName ||
-                          toChain?.name ||
-                          "Select Network"}{" "}
-                        / {displaySymbolOf(toTokenMeta) || "Select Token"}
+                        {toToken ? "Push Chain" : "Select Network"}{" "}
+                        / {(toTokenMeta as any)?.symbol ||
+                          displaySymbolOf(toTokenMeta) ||
+                          "Select Token"}
                       </p>
                     </div>
                   </div>
@@ -2164,11 +2164,11 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                         <div className="mt-2 flex items-center justify-between gap-2">
                           <div className="flex-1">
                             {balanceLoading ? (
-                              <p className="font-family-ThaleahFat text-sm tracking-widest text-[#8B8B8B] uppercase">
+                              <p className="font-family-ThaleahFat text-base tracking-widest text-yellow-100/85 uppercase sm:text-lg">
                                 Loading balance...
                               </p>
                             ) : fromTokenBalance ? (
-                              <p className="font-family-ThaleahFat text-sm tracking-widest text-[#8B8B8B] uppercase">
+                              <p className="font-family-ThaleahFat text-base tracking-widest text-yellow-100 uppercase sm:text-lg">
                                 Balance:{" "}
                                 {Number(fromTokenBalance).toLocaleString(
                                   undefined,
@@ -2179,14 +2179,14 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                                 )}{" "}
                                 {displaySymbolOf(fromTokenMeta)}
                                 {balanceUsdValue && (
-                                  <span className="text-[#BCBCBC]">
+                                  <span className="text-yellow-200">
                                     {" "}
                                     (${Number(balanceUsdValue).toFixed(2)})
                                   </span>
                                 )}
                               </p>
                             ) : (
-                              <p className="font-family-ThaleahFat text-sm tracking-widest text-[#8B8B8B] uppercase">
+                              <p className="font-family-ThaleahFat text-base tracking-widest text-yellow-100 uppercase sm:text-lg">
                                 Unable to load balance
                               </p>
                             )}
