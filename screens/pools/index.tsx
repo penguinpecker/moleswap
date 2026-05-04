@@ -288,7 +288,7 @@ const PoolsContent = () => {
     `font-family-ThaleahFat text-shadow-black px-4 py-1 rounded-full text-base sm:text-2xl sm:px-6 transition-colors duration-150 cursor-pointer ${
       tab === t
         ? "bg-ground-button border-3 sm:border-4 border-ground-button-border text-peach-400"
-        : "text-gray-400 hover:text-yellow-200 border-3 sm:border-4 border-transparent"
+        : "text-gray-200 hover:text-yellow-200 border-3 sm:border-4 border-transparent"
     }`;
 
   return (
@@ -297,7 +297,7 @@ const PoolsContent = () => {
         <h1 className="text-peach-300 text-shadow-header font-family-ThaleahFat text-2xl font-bold tracking-widest uppercase sm:text-5xl">
           UNIVERSAL POOLS
         </h1>
-        <p className="font-family-ThaleahFat mt-1 text-sm tracking-wider text-gray-400 sm:text-base">
+        <p className="font-family-ThaleahFat mt-1 text-base tracking-wider text-gray-200 sm:text-lg">
           PUSHCHAIN DONUT TESTNET — ALL ASSETS BRIDGED VIA PRC-20
         </p>
         <Image
@@ -345,8 +345,8 @@ const PoolsContent = () => {
                     <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200}
                       className="absolute inset-0 z-[-1] h-full w-full rounded" />
                     <div className="mb-1 flex items-center justify-center">{s.icon}</div>
-                    <div className="font-family-ThaleahFat text-sm tracking-wider text-gray-400 sm:text-base">{s.l}</div>
-                    <div className="font-family-ThaleahFat text-peach-300 truncate text-lg sm:text-2xl">{s.v}</div>
+                    <div className="font-family-ThaleahFat text-base tracking-wider text-gray-200 sm:text-lg">{s.l}</div>
+                    <div className="font-family-ThaleahFat text-peach-300 truncate text-xl sm:text-3xl">{s.v}</div>
                   </div>
                 ))}
               </div>
@@ -358,8 +358,8 @@ const PoolsContent = () => {
                     onClick={() => setChainFilter(ch)}
                     className={`font-family-ThaleahFat cursor-pointer whitespace-nowrap rounded px-3 py-1.5 text-base tracking-wider transition-all ${
                       chainFilter === ch
-                        ? "border border-yellow-400 text-yellow-400"
-                        : "border border-gray-700 text-gray-500 hover:text-gray-300"
+                        ? "border-2 border-yellow-400 text-yellow-400"
+                        : "border-2 border-[#E8A849]/55 text-gray-300 hover:border-[#FFD47A]/80 hover:text-white"
                     }`}
                     style={chainFilter === ch && ch !== "all" ? {
                       borderColor: chainColors[ch] || "#D548EC",
@@ -380,7 +380,7 @@ const PoolsContent = () => {
                     className={`font-family-ThaleahFat cursor-pointer rounded px-3 py-1 text-base transition-all ${
                       sort === k
                         ? "bg-ground-button border-ground-button-border text-peach-500 border"
-                        : "border border-transparent text-gray-500"
+                        : "border border-transparent text-gray-300"
                     }`}
                   >
                     {l}
@@ -393,7 +393,7 @@ const PoolsContent = () => {
 
               <div className="hidden px-3 pb-2 sm:grid" style={{ gridTemplateColumns: "2.4fr .6fr .7fr .7fr .9fr" }}>
                 {["POOL", "TVL", "FEE APY", "24H VOL", ""].map((h, i) => (
-                  <span key={i} className={`font-family-ThaleahFat text-base tracking-wider text-gray-500 ${i > 0 ? "text-right" : ""}`}>
+                  <span key={i} className={`font-family-ThaleahFat text-xl tracking-wider text-gray-300 ${i > 0 ? "text-right" : ""}`}>
                     {h}
                   </span>
                 ))}
@@ -403,12 +403,12 @@ const PoolsContent = () => {
                 <div className="py-12 text-center">
                   <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-yellow-100 border-t-transparent" />
                   <p className="font-family-ThaleahFat text-peach-300 mt-4 text-xl">READING ON-CHAIN DATA...</p>
-                  <p className="font-family-ThaleahFat mt-1 text-xs text-gray-500">Fetching from PushChain Donut Testnet</p>
+                  <p className="font-family-ThaleahFat mt-1 text-sm text-gray-300">Fetching from PushChain Donut Testnet</p>
                 </div>
               ) : sorted.length === 0 ? (
                 <div className="py-12 text-center">
-                  <p className="font-family-ThaleahFat text-xl text-gray-400">NO POOLS FOUND</p>
-                  <p className="font-family-ThaleahFat mt-2 text-sm text-gray-500">No active liquidity on-chain for this filter</p>
+                  <p className="font-family-ThaleahFat text-2xl text-gray-100">NO POOLS FOUND</p>
+                  <p className="font-family-ThaleahFat mt-2 text-base text-gray-300">No active liquidity on-chain for this filter</p>
                 </div>
               ) : (
               <div className="flex flex-col gap-1.5">
@@ -427,17 +427,17 @@ const PoolsContent = () => {
                           <div className="font-family-ThaleahFat text-xl tracking-wider text-white">{p.name}</div>
                           <div className="mt-0.5 flex gap-1">
                             <Badge chain="Push Chain" />
-                            <span className="font-family-ThaleahFat bg-ground-button-border rounded-sm px-1.5 py-px text-sm text-gray-400">
+                            <span className="font-family-ThaleahFat bg-ground-button-border rounded-sm px-1.5 py-px text-sm text-gray-200">
                               {(p.fee / 10000).toFixed(2)}%
                             </span>
                           </div>
                         </div>
                       </div>
-                      <div className="text-right"><span className="font-family-ThaleahFat truncate text-lg text-white">${fmt(p.tvl)}</span></div>
-                      <div className="font-family-ThaleahFat text-right text-lg text-[#6DBB3E]">{p.feeApy}%</div>
-                      <div className="font-family-ThaleahFat text-right text-lg text-gray-300">${fmt(p.vol24h)}</div>
+                      <div className="text-right"><span className="font-family-ThaleahFat truncate text-2xl text-white">${fmt(p.tvl)}</span></div>
+                      <div className="font-family-ThaleahFat text-right text-2xl text-[#6DBB3E]">{p.feeApy}%</div>
+                      <div className="font-family-ThaleahFat text-right text-2xl text-gray-300">${fmt(p.vol24h)}</div>
                       <div className="flex justify-end gap-1.5">
-                        <span className="font-family-ThaleahFat rounded bg-[#6DBB3E] px-3 py-1.5 text-base text-white shadow-[0_-2px_0_#4A8B29_inset]">
+                        <span className="font-family-ThaleahFat rounded bg-[#6DBB3E] px-3 py-1.5 text-lg text-white shadow-[0_-2px_0_#4A8B29_inset]">
                           + LIQUIDITY
                         </span>
                       </div>
@@ -451,8 +451,8 @@ const PoolsContent = () => {
                         </div>
                       </div>
                       <div className="text-right">
-                        <div className="font-family-ThaleahFat text-lg text-[#6DBB3E]">{p.feeApy}% FEE APY</div>
-                        <div className="font-family-ThaleahFat text-base text-gray-400">${fmt(p.tvl)}</div>
+                        <div className="font-family-ThaleahFat text-xl text-[#6DBB3E]">{p.feeApy}% FEE APY</div>
+                        <div className="font-family-ThaleahFat text-xl text-gray-200">${fmt(p.tvl)}</div>
                       </div>
                     </div>
                   </button>
@@ -474,7 +474,7 @@ const PoolsContent = () => {
             />
           )}
 
-          <p className="font-family-ThaleahFat mt-6 text-center text-sm tracking-widest text-gray-600">
+          <p className="font-family-ThaleahFat mt-6 text-center text-sm tracking-widest text-gray-400">
             PUSHCHAIN V3 CONCENTRATED LIQUIDITY — DONUT TESTNET — ALL POOLS PAIRED VS WPC
           </p>
         </div>
@@ -547,7 +547,7 @@ const LiquidityGraph = ({ currentTick, tickLower, tickUpper, height = 80, price,
         return (
           <div className="pointer-events-none absolute z-50 rounded border border-[#E8A849] bg-[#3A1F0E]/95 px-2.5 py-1.5 shadow-lg" style={{ bottom: "100%", left: `${Math.min(Math.max(leftPct, 15), 85)}%`, transform: "translateX(-50%) translateY(-4px)", whiteSpace: "nowrap" }}>
             <div className="font-family-ThaleahFat text-xs text-[#FFD47A]">{bd.barPrice > 1000 ? fmt(bd.barPrice) : bd.barPrice.toFixed(2)} {token1Symbol || ""}</div>
-            <div className="font-family-ThaleahFat text-xs text-gray-400">LIQ: {bd.liq.toFixed(0)}%</div>
+            <div className="font-family-ThaleahFat text-xs text-gray-200">LIQ: {bd.liq.toFixed(0)}%</div>
             <div className="font-family-ThaleahFat text-xs text-[#6DBB3E]">{bd.inRange ? "IN RANGE" : "OUT OF RANGE"}</div>
           </div>
         );
@@ -589,38 +589,38 @@ const RemoveLiquidityModal = ({ pos, ep, t0, t1, fees0, fees1, onConfirm, onCanc
       <div className="border-ground mx-4 w-full max-w-md overflow-hidden rounded-xl border-3 bg-gradient-to-b from-[#52301A] to-[#4A2C15] shadow-[0_0_40px_rgba(232,168,73,0.12),0_8px_0_#3A1F0E]" style={{ borderColor: "#E8A849" }}>
         <div className="flex items-center justify-between border-b-2 border-[#3A1F0E] bg-black/20 px-5 py-3">
           <span className="font-family-ThaleahFat text-xl tracking-wider text-[#FFD47A]">REMOVE LIQUIDITY</span>
-          <button onClick={onCancel} className="font-family-ThaleahFat cursor-pointer text-lg text-gray-500 hover:text-white">✕</button>
+          <button onClick={onCancel} className="font-family-ThaleahFat cursor-pointer text-lg text-gray-300 hover:text-white">✕</button>
         </div>
         <div className="px-5 py-4">
           <div className="mb-4 flex items-center gap-3 border-b border-white/5 pb-4">
             <TokenPair t0={t0} t1={t1} size={32} />
             <div>
               <div className="font-family-ThaleahFat text-lg tracking-wider text-white">{t0.symbol} / {t1.symbol}</div>
-              <div className="font-family-ThaleahFat mt-0.5 text-xs text-gray-500">NFT #{pos.tokenId} · {feeTier} FEE · {isFullRange ? "FULL RANGE" : "CUSTOM"}</div>
+              <div className="font-family-ThaleahFat mt-0.5 text-sm text-gray-300">NFT #{pos.tokenId} · {feeTier} FEE · {isFullRange ? "FULL RANGE" : "CUSTOM"}</div>
             </div>
           </div>
 
           <div className="mb-3">
             <div className="font-family-ThaleahFat mb-2 flex items-center gap-2 text-sm text-[#E8A849]">YOU WILL RECEIVE <span className="flex-1 border-t border-white/5" /></div>
             <div className="flex justify-between py-1">
-              <span className="font-family-ThaleahFat flex items-center gap-2 text-sm text-gray-400"><TokenIcon token={t0} size={16} />{t0.symbol}</span>
-              <span className="font-family-ThaleahFat text-sm text-[#FFD47A]">{ep ? ep.amount0.toFixed(ep.amount0 < 0.01 ? 6 : 4) : "..."}</span>
+              <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t0} size={16} />{t0.symbol}</span>
+              <span className="font-family-ThaleahFat text-base text-[#FFD47A]">{ep ? ep.amount0.toFixed(ep.amount0 < 0.01 ? 6 : 4) : "..."}</span>
             </div>
             <div className="flex justify-between py-1">
-              <span className="font-family-ThaleahFat flex items-center gap-2 text-sm text-gray-400"><TokenIcon token={t1} size={16} />{t1.symbol}</span>
-              <span className="font-family-ThaleahFat text-sm text-[#FFD47A]">{ep ? ep.amount1.toFixed(ep.amount1 < 0.01 ? 6 : 4) : "..."}</span>
+              <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t1} size={16} />{t1.symbol}</span>
+              <span className="font-family-ThaleahFat text-base text-[#FFD47A]">{ep ? ep.amount1.toFixed(ep.amount1 < 0.01 ? 6 : 4) : "..."}</span>
             </div>
           </div>
 
           <div className="mb-3">
             <div className="font-family-ThaleahFat mb-2 flex items-center gap-2 text-sm text-[#E8A849]">FEES COLLECTED <span className="flex-1 border-t border-white/5" /></div>
             <div className="flex justify-between py-1">
-              <span className="font-family-ThaleahFat flex items-center gap-2 text-sm text-gray-400"><TokenIcon token={t0} size={16} />{t0.symbol} FEES</span>
-              <span className={`font-family-ThaleahFat text-sm ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-600"}`}>{fees0 > 0 ? `+${fees0.toFixed(6)}` : "0.00"}</span>
+              <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t0} size={16} />{t0.symbol} FEES</span>
+              <span className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees0 > 0 ? `+${fees0.toFixed(6)}` : "0.00"}</span>
             </div>
             <div className="flex justify-between py-1">
-              <span className="font-family-ThaleahFat flex items-center gap-2 text-sm text-gray-400"><TokenIcon token={t1} size={16} />{t1.symbol} FEES</span>
-              <span className={`font-family-ThaleahFat text-sm ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-600"}`}>{fees1 > 0 ? `+${fees1.toFixed(6)}` : "0.00"}</span>
+              <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t1} size={16} />{t1.symbol} FEES</span>
+              <span className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees1 > 0 ? `+${fees1.toFixed(6)}` : "0.00"}</span>
             </div>
           </div>
 
@@ -760,7 +760,7 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
       <div className="py-12 text-center">
         <div className="mx-auto h-8 w-8 animate-spin rounded-full border-4 border-yellow-100 border-t-transparent" />
         <p className="font-family-ThaleahFat text-peach-300 mt-4 text-xl">LOADING POSITIONS...</p>
-        <p className="font-family-ThaleahFat mt-1 text-xs text-gray-500">Reading on-chain position data</p>
+        <p className="font-family-ThaleahFat mt-1 text-sm text-gray-300">Reading on-chain position data</p>
       </div>
     );
   }
@@ -770,7 +770,7 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
       <div className="flex flex-col items-center gap-4 py-12">
         <Image src="/profile/c2.png" alt="Mole" width={80} height={80} className="object-contain" style={{ imageRendering: "pixelated" }} />
         <p className="font-family-ThaleahFat text-shadow-black text-2xl tracking-wider text-white">NO ACTIVE POSITIONS</p>
-        <p className="font-family-ThaleahFat max-w-xs text-center text-sm text-gray-400">ADD LIQUIDITY TO A POOL TO START EARNING FEES</p>
+        <p className="font-family-ThaleahFat max-w-xs text-center text-base text-gray-200">ADD LIQUIDITY TO A POOL TO START EARNING FEES</p>
         <button onClick={onGoToMarkets} className="font-family-ThaleahFat mt-2 cursor-pointer rounded-lg bg-[#6DBB3E] px-8 py-3 text-xl tracking-wider text-white shadow-[0px_-4px_0px_0px_#4A8B29_inset,0px_4px_0px_0px_rgba(255,255,255,0.3)_inset] transition-all hover:scale-[1.02]">
           EXPLORE MARKETS
         </button>
@@ -808,13 +808,13 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
       <div className="grid grid-cols-3 gap-2">
         {[
           { l: "TOTAL DEPOSITED", v: enriched.length > 0 ? `${enriched.reduce((s, e) => s + e.amount0, 0).toFixed(4)} / ${enriched.reduce((s, e) => s + e.amount1, 0).toFixed(4)}` : "...", c: "text-peach-300" },
-          { l: "UNCLAIMED FEES", v: (totalFees0 > 0 || totalFees1 > 0) ? `+${totalFees0.toFixed(4)} / +${totalFees1.toFixed(4)}` : "NONE", c: totalFees0 > 0 || totalFees1 > 0 ? "text-[#6DBB3E]" : "text-gray-600" },
+          { l: "UNCLAIMED FEES", v: (totalFees0 > 0 || totalFees1 > 0) ? `+${totalFees0.toFixed(4)} / +${totalFees1.toFixed(4)}` : "NONE", c: totalFees0 > 0 || totalFees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400" },
           { l: "POSITIONS", v: `${activeCount} ACTIVE`, c: "text-peach-300" },
         ].map((s, i) => (
           <div key={i} className="relative rounded px-3 py-2 text-center">
             <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
-            <div className="font-family-ThaleahFat text-xs tracking-wider text-gray-500">{s.l}</div>
-            <div className={`font-family-ThaleahFat mt-0.5 truncate text-sm ${s.c}`}>{s.v}</div>
+            <div className="font-family-ThaleahFat text-sm tracking-wider text-gray-300">{s.l}</div>
+            <div className={`font-family-ThaleahFat mt-0.5 truncate text-base ${s.c}`}>{s.v}</div>
           </div>
         ))}
       </div>
@@ -853,11 +853,11 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
                     <span className="font-family-ThaleahFat rounded-sm bg-[#3A1F0E] px-1.5 py-px text-sm text-[#C49A6C]">
                       {ep?.feeTier || `${(pos.fee / 10000).toFixed(2)}%`}
                     </span>
-                    <span className="font-family-ThaleahFat rounded-sm bg-gray-800 px-1.5 py-px text-sm text-gray-500">NFT #{pos.tokenId}</span>
+                    <span className="font-family-ThaleahFat rounded-sm bg-gray-800 px-1.5 py-px text-sm text-gray-300">NFT #{pos.tokenId}</span>
                   </div>
                 </div>
               </div>
-              <span className={`font-family-ThaleahFat text-lg ${hasLiq ? "text-[#6DBB3E]" : "text-gray-500"}`}>
+              <span className={`font-family-ThaleahFat text-lg ${hasLiq ? "text-[#6DBB3E]" : "text-gray-300"}`}>
                 {hasLiq && <span className="mr-1 inline-block h-2 w-2 rounded-full bg-[#6DBB3E] shadow-[0_0_6px_#6DBB3E]" />}
                 {hasLiq ? "ACTIVE" : "CLOSED"}
               </span>
@@ -871,7 +871,7 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
                     <div key={i} className="rounded border-2 border-[#3A1F0E] bg-black/20 px-3 py-2">
                       <div className="flex items-center gap-1.5">
                         <TokenIcon token={item.tok} size={16} />
-                        <span className="font-family-ThaleahFat text-xs text-gray-500">{item.tok.symbol} {item.label}</span>
+                        <span className="font-family-ThaleahFat text-sm text-gray-300">{item.tok.symbol} {item.label}</span>
                       </div>
                       <div className="font-family-ThaleahFat text-peach-300 mt-1 text-lg">
                         {item.amt !== undefined ? item.amt.toFixed(item.amt < 0.01 ? 6 : 4) : "..."}
@@ -895,14 +895,14 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
                   </div>
                   <div className="flex gap-4">
                     <div>
-                      <div className="font-family-ThaleahFat text-xs text-gray-500">{t0.symbol}</div>
-                      <div className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-600"}`}>
+                      <div className="font-family-ThaleahFat text-sm text-gray-300">{t0.symbol}</div>
+                      <div className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>
                         {fees0 > 0 ? `+${fees0.toFixed(6)}` : "0.00"}
                       </div>
                     </div>
                     <div>
-                      <div className="font-family-ThaleahFat text-xs text-gray-500">{t1.symbol}</div>
-                      <div className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-600"}`}>
+                      <div className="font-family-ThaleahFat text-sm text-gray-300">{t1.symbol}</div>
+                      <div className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>
                         {fees1 > 0 ? `+${fees1.toFixed(6)}` : "0.00"}
                       </div>
                     </div>
@@ -918,8 +918,8 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
                   { l: "POOL", v: ep?.poolAddress ? `${ep.poolAddress.slice(0, 6)}...${ep.poolAddress.slice(-4)}` : "—", c: "text-gray-400" },
                 ].map(({ l, v, c }) => (
                   <div key={l} className="rounded bg-black/10 px-2 py-1.5">
-                    <div className="font-family-ThaleahFat text-xs text-gray-600">{l}</div>
-                    <div className={`font-family-ThaleahFat mt-0.5 truncate text-sm ${c}`}>{v}</div>
+                    <div className="font-family-ThaleahFat text-sm text-gray-300">{l}</div>
+                    <div className={`font-family-ThaleahFat mt-0.5 truncate text-base ${c}`}>{v}</div>
                   </div>
                 ))}
               </div>
@@ -1103,8 +1103,8 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
         ].map((s, i) => (
           <div key={i} className="relative rounded px-3 py-3 text-center">
             <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
-            <div className="font-family-ThaleahFat text-sm tracking-wider text-gray-500">{s.l}</div>
-            <div className={`font-family-ThaleahFat text-xl ${s.c}`}>{s.v}</div>
+            <div className="font-family-ThaleahFat text-base tracking-wider text-gray-200">{s.l}</div>
+            <div className={`font-family-ThaleahFat text-2xl ${s.c}`}>{s.v}</div>
           </div>
         ))}
       </div>
@@ -1122,8 +1122,8 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
                 <span className="font-family-ThaleahFat text-base text-white">{poolDisp.symbol}</span>
                 <Badge chain="Push Chain" />
               </div>
-              <div className="font-family-ThaleahFat mt-1 text-sm text-gray-500">POOLED AMOUNT</div>
-              <div className="font-family-ThaleahFat text-peach-300 text-xl">{item.reserve}</div>
+              <div className="font-family-ThaleahFat mt-1 text-base text-gray-200">POOLED AMOUNT</div>
+              <div className="font-family-ThaleahFat text-peach-300 text-2xl">{item.reserve}</div>
             </div>
           );
         })}
@@ -1138,9 +1138,9 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
         </div>
         <LiquidityGraph currentTick={currentTick} tickLower={-887272} tickUpper={887272} height={80} price={pool.price} token0Symbol={pool.token0.symbol} token1Symbol={pool.token1.symbol} />
         <div className="mt-1.5 flex justify-between">
-          <span className="font-family-ThaleahFat text-xs text-gray-600">MIN: 0</span>
-          <span className="font-family-ThaleahFat text-xs text-[#6DBB3E]">● IN RANGE — FULL</span>
-          <span className="font-family-ThaleahFat text-xs text-gray-600">MAX: ∞</span>
+          <span className="font-family-ThaleahFat text-sm text-gray-400">MIN: 0</span>
+          <span className="font-family-ThaleahFat text-sm text-[#6DBB3E]">● IN RANGE — FULL</span>
+          <span className="font-family-ThaleahFat text-sm text-gray-400">MAX: ∞</span>
         </div>
       </div>
 
@@ -1148,8 +1148,8 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
       <div className="relative rounded px-3 py-3">
         <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
         <div className="flex justify-between">
-          <span className="font-family-ThaleahFat text-base text-gray-500">PRICE</span>
-          <span className="font-family-ThaleahFat text-peach-300 text-base">1 {pool.token0.symbol} = {priceStr} {pool.token1.symbol}</span>
+          <span className="font-family-ThaleahFat text-lg text-gray-200">PRICE</span>
+          <span className="font-family-ThaleahFat text-peach-300 text-lg">1 {pool.token0.symbol} = {priceStr} {pool.token1.symbol}</span>
         </div>
       </div>
 
@@ -1167,7 +1167,7 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
       ) : txError ? (
         <div className="py-4 text-center">
           <p className="font-family-ThaleahFat text-xl text-red-400">TRANSACTION FAILED ✗</p>
-          <p className="font-family-ThaleahFat mt-1 break-words text-sm text-gray-400">{txError.slice(0, 150)}</p>
+          <p className="font-family-ThaleahFat mt-1 break-words text-base text-gray-200">{txError.slice(0, 150)}</p>
           <button onClick={() => setTxError(null)} className="font-family-ThaleahFat text-peach-300 mt-2 cursor-pointer text-base underline">TRY AGAIN</button>
         </div>
       ) : actionTab === null ? (
@@ -1183,15 +1183,15 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
         <div className="overflow-hidden rounded-lg border-3 border-[#3A1F0E] bg-gradient-to-b from-[#52301A] to-[#4A2C15]">
           <div className="flex items-center justify-between border-b-2 border-[#3A1F0E] bg-black/20 px-4 py-3">
             <span className="font-family-ThaleahFat text-xl tracking-wider text-white">+ ADD LIQUIDITY</span>
-            <button onClick={() => { setActionTab(null); setAmount0(""); setAmount1(""); }} className="font-family-ThaleahFat cursor-pointer text-lg text-gray-500 hover:text-white">✕</button>
+            <button onClick={() => { setActionTab(null); setAmount0(""); setAmount1(""); }} className="font-family-ThaleahFat cursor-pointer text-lg text-gray-300 hover:text-white">✕</button>
           </div>
           <div className="px-4 py-3">
             {/* Token 0 input */}
             <div className="relative mb-2 rounded px-3 py-2.5">
               <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
               <div className="mb-1 flex justify-between">
-                <span className="font-family-ThaleahFat text-base text-gray-500">{pool.token0.symbol}</span>
-                <span className={`font-family-ThaleahFat text-base ${insufficientBalance0 ? "text-red-400" : "text-gray-500"}`}>
+                <span className="font-family-ThaleahFat text-lg text-gray-200">{pool.token0.symbol}</span>
+                <span className={`font-family-ThaleahFat text-lg ${insufficientBalance0 ? "text-red-400" : "text-gray-200"}`}>
                   BAL: {balance0 !== null ? Number(balance0).toFixed(4) : "..."}
                 </span>
               </div>
@@ -1206,14 +1206,14 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
               {insufficientBalance0 && <div className="mt-1 flex items-center gap-1"><AlertTriangle className="h-3 w-3 text-red-400" /><span className="font-family-ThaleahFat text-xs text-red-400">INSUFFICIENT {pool.token0.symbol} BALANCE</span></div>}
             </div>
 
-            <div className="my-1 flex justify-center"><span className="font-family-ThaleahFat text-2xl text-gray-500">+</span></div>
+            <div className="my-1 flex justify-center"><span className="font-family-ThaleahFat text-2xl text-gray-300">+</span></div>
 
             {/* Token 1 input */}
             <div className="relative mb-3 rounded px-3 py-2.5">
               <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
               <div className="mb-1 flex justify-between">
-                <span className="font-family-ThaleahFat text-base text-gray-500">{pool.token1.symbol}</span>
-                <span className={`font-family-ThaleahFat text-base ${insufficientBalance1 ? "text-red-400" : "text-gray-500"}`}>
+                <span className="font-family-ThaleahFat text-lg text-gray-200">{pool.token1.symbol}</span>
+                <span className={`font-family-ThaleahFat text-lg ${insufficientBalance1 ? "text-red-400" : "text-gray-200"}`}>
                   BAL: {balance1 !== null ? Number(balance1).toFixed(4) : "..."}
                 </span>
               </div>
@@ -1232,32 +1232,32 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
             <div className="relative mb-3 rounded px-3 py-2.5">
               <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
               <div className="mb-2 flex items-center justify-between">
-                <span className="font-family-ThaleahFat text-base text-gray-500">SELECT RANGE</span>
+                <span className="font-family-ThaleahFat text-lg text-gray-200">SELECT RANGE</span>
               </div>
               <div className="mb-3 grid grid-cols-2 gap-2">
                 <button onClick={() => { setRangeMode("full"); setMinPrice(""); setMaxPrice(""); }}
                   className={`font-family-ThaleahFat cursor-pointer rounded-lg border-2 px-3 py-2 text-center text-sm tracking-wider transition-all ${
-                    rangeMode === "full" ? "border-[#6DBB3E] bg-[#6DBB3E]/10 text-[#6DBB3E]" : "border-[#3A1F0E] text-gray-500 hover:text-gray-300"
+                    rangeMode === "full" ? "border-[#6DBB3E] bg-[#6DBB3E]/10 text-[#6DBB3E]" : "border-[#3A1F0E] text-gray-300 hover:text-white"
                   }`}>FULL RANGE</button>
                 <button onClick={() => setRangeMode("custom")}
                   className={`font-family-ThaleahFat cursor-pointer rounded-lg border-2 px-3 py-2 text-center text-sm tracking-wider transition-all ${
-                    rangeMode === "custom" ? "border-[#FFD47A] bg-[#FFD47A]/10 text-[#FFD47A]" : "border-[#3A1F0E] text-gray-500 hover:text-gray-300"
+                    rangeMode === "custom" ? "border-[#FFD47A] bg-[#FFD47A]/10 text-[#FFD47A]" : "border-[#3A1F0E] text-gray-300 hover:text-white"
                   }`}>CUSTOM RANGE</button>
               </div>
 
               {rangeMode === "custom" && (
                 <div className="mb-2 grid grid-cols-2 gap-2">
                   <div className="rounded border-2 border-[#3A1F0E] bg-black/20 px-3 py-2">
-                    <div className="font-family-ThaleahFat mb-1 text-xs text-gray-500">MIN PRICE</div>
+                    <div className="font-family-ThaleahFat mb-1 text-sm text-gray-300">MIN PRICE</div>
                     <input type="text" value={minPrice} onChange={e => setMinPrice(e.target.value.replace(/[^0-9.]/g, ""))}
-                      placeholder="0" className="font-family-ThaleahFat w-full bg-transparent text-lg text-[#FFD47A] placeholder:text-gray-600 focus:outline-none" />
-                    <div className="font-family-ThaleahFat text-xs text-gray-600">{pool.token1.symbol} per {pool.token0.symbol}</div>
+                      placeholder="0" className="font-family-ThaleahFat w-full bg-transparent text-lg text-[#FFD47A] placeholder:text-gray-500 focus:outline-none" />
+                    <div className="font-family-ThaleahFat text-sm text-gray-400">{pool.token1.symbol} per {pool.token0.symbol}</div>
                   </div>
                   <div className="rounded border-2 border-[#3A1F0E] bg-black/20 px-3 py-2">
-                    <div className="font-family-ThaleahFat mb-1 text-xs text-gray-500">MAX PRICE</div>
+                    <div className="font-family-ThaleahFat mb-1 text-sm text-gray-300">MAX PRICE</div>
                     <input type="text" value={maxPrice} onChange={e => setMaxPrice(e.target.value.replace(/[^0-9.]/g, ""))}
-                      placeholder="∞" className="font-family-ThaleahFat w-full bg-transparent text-lg text-[#FFD47A] placeholder:text-gray-600 focus:outline-none" />
-                    <div className="font-family-ThaleahFat text-xs text-gray-600">{pool.token1.symbol} per {pool.token0.symbol}</div>
+                      placeholder="∞" className="font-family-ThaleahFat w-full bg-transparent text-lg text-[#FFD47A] placeholder:text-gray-500 focus:outline-none" />
+                    <div className="font-family-ThaleahFat text-sm text-gray-400">{pool.token1.symbol} per {pool.token0.symbol}</div>
                   </div>
                 </div>
               )}
@@ -1278,12 +1278,12 @@ const PoolDetail = ({ pool, onBack, address, isConnected, walletCtx, pushChainCl
                 ["PRICE", `1 ${pool.token0.symbol} = ${pool.price > 0 ? pool.price.toFixed(4) : "N/A"} ${pool.token1.symbol}`, "text-peach-300"],
                 ["FEE TIER", `${(pool.fee / 10000).toFixed(2)}%`, "text-peach-300"],
                 ["RANGE", rangeMode === "full" ? "FULL RANGE" : `${minPrice || "0"} — ${maxPrice || "∞"} ${pool.token1.symbol}`, rangeMode === "full" ? "text-[#6DBB3E]" : "text-[#FFD47A]"],
-                ["SLIPPAGE", "0.5%", "text-gray-400"],
+                ["SLIPPAGE", "0.5%", "text-gray-200"],
                 ["ON-CHAIN", pool.active ? "LIVE ✓" : "NO LIQUIDITY", pool.active ? "text-[#6DBB3E]" : "text-red-400"],
               ].map(([k, v, c]) => (
                 <div key={k} className="flex justify-between py-0.5">
-                  <span className="font-family-ThaleahFat text-sm text-gray-500">{k}</span>
-                  <span className={`font-family-ThaleahFat text-sm ${c || "text-peach-300"}`}>{v}</span>
+                  <span className="font-family-ThaleahFat text-base text-gray-200">{k}</span>
+                  <span className={`font-family-ThaleahFat text-base ${c || "text-peach-300"}`}>{v}</span>
                 </div>
               ))}
             </div>
