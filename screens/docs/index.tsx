@@ -632,7 +632,7 @@ console.log(\`Explorer: \${data.explorer}\`);` },
 curl "${BASE}/api/v1/quote?tokenIn=0x0000000000000000000000000000000000000000&tokenOut=0x2971824Db68229D087931155C2b8bB820B275809&amountIn=1000000000000000000"
 
 # Multi-hop: 0.1 pETH → USDC.eth (routes through WPC automatically)
-curl "${BASE}/api/v1/quote?tokenIn=0x2971824Db68229D087931155C2b8bB820B275809&tokenOut=0x387b9C8Db60E74999aAAC5A2b7825b400F12d68E&amountIn=100000000000000000"` },
+curl "${BASE}/api/v1/quote?tokenIn=0x2971824Db68229D087931155C2b8bB820B275809&tokenOut=0x7A58048036206bB898008b5bBDA85697DB1e5d66&amountIn=100000000000000000"` },
               { label: "JavaScript", lang: "js", code: `const quote = await fetch("${BASE}/api/v1/quote?" + new URLSearchParams({
   tokenIn: "0x0000000000000000000000000000000000000000",
   tokenOut: "0x2971824Db68229D087931155C2b8bB820B275809",
