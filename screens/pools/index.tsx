@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { NavBar, BackgroundImage } from "../shared";
@@ -584,8 +585,9 @@ const RemoveLiquidityModal = ({ pos, ep, t0, t1, fees0, fees1, onConfirm, onCanc
   const feeTier = `${(pos.fee / 10000).toFixed(2)}%`;
   const isFullRange = pos.tickLower <= -887200 && pos.tickUpper >= 887200;
 
-  return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/75 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
       <div className="border-ground mx-4 w-full max-w-md overflow-hidden rounded-xl border-3 bg-gradient-to-b from-[#52301A] to-[#4A2C15] shadow-[0_0_40px_rgba(232,168,73,0.12),0_8px_0_#3A1F0E]" style={{ borderColor: "#E8A849" }}>
         <div className="flex items-center justify-between border-b-2 border-[#3A1F0E] bg-black/20 px-5 py-3">
           <span className="font-family-ThaleahFat text-xl tracking-wider text-[#FFD47A]">REMOVE LIQUIDITY</span>
@@ -616,11 +618,11 @@ const RemoveLiquidityModal = ({ pos, ep, t0, t1, fees0, fees1, onConfirm, onCanc
             <div className="font-family-ThaleahFat mb-2 flex items-center gap-2 text-sm text-[#E8A849]">FEES COLLECTED <span className="flex-1 border-t border-white/5" /></div>
             <div className="flex justify-between py-1">
               <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t0} size={16} />{t0.symbol} FEES</span>
-              <span className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees0 > 0 ? `+${fees0.toFixed(6)}` : "0.00"}</span>
+              <span className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees0 > 0 ? `+${fees0.toFixed(8)}` : "0.00"}</span>
             </div>
             <div className="flex justify-between py-1">
               <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t1} size={16} />{t1.symbol} FEES</span>
-              <span className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees1 > 0 ? `+${fees1.toFixed(6)}` : "0.00"}</span>
+              <span className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees1 > 0 ? `+${fees1.toFixed(8)}` : "0.00"}</span>
             </div>
           </div>
 
@@ -649,7 +651,68 @@ const RemoveLiquidityModal = ({ pos, ep, t0, t1, fees0, fees1, onConfirm, onCanc
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
+  );
+};
+
+// ═══ COLLECT FEES MODAL ═══
+const CollectFeesModal = ({ pos, t0, t1, fees0, fees1, onConfirm, onCancel, collecting }: {
+  pos: LiquidityPosition; t0: TokenInfo; t1: TokenInfo;
+  fees0: number; fees1: number; onConfirm: () => void; onCancel: () => void; collecting: boolean;
+}) => {
+  const feeTier = `${(pos.fee / 10000).toFixed(2)}%`;
+  const hasAny = fees0 > 0 || fees1 > 0;
+
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/75 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) onCancel(); }}>
+      <div className="border-ground mx-4 w-full max-w-md overflow-hidden rounded-xl border-3 bg-gradient-to-b from-[#52301A] to-[#4A2C15] shadow-[0_0_40px_rgba(232,168,73,0.12),0_8px_0_#3A1F0E]" style={{ borderColor: "#E8A849" }}>
+        <div className="flex items-center justify-between border-b-2 border-[#3A1F0E] bg-black/20 px-5 py-3">
+          <span className="font-family-ThaleahFat text-xl tracking-wider text-[#FFD47A]">COLLECT FEES</span>
+          <button onClick={onCancel} className="font-family-ThaleahFat cursor-pointer text-lg text-gray-300 hover:text-white">✕</button>
+        </div>
+        <div className="px-5 py-4">
+          <div className="mb-4 flex items-center gap-3 border-b border-white/5 pb-4">
+            <TokenPair t0={t0} t1={t1} size={32} />
+            <div>
+              <div className="font-family-ThaleahFat text-lg tracking-wider text-white">{t0.symbol} / {t1.symbol}</div>
+              <div className="font-family-ThaleahFat mt-0.5 text-sm text-gray-300">NFT #{pos.tokenId} · {feeTier} FEE</div>
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <div className="font-family-ThaleahFat mb-2 flex items-center gap-2 text-sm text-[#E8A849]">UNCLAIMED FEES <span className="flex-1 border-t border-white/5" /></div>
+            <div className="flex justify-between py-1">
+              <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t0} size={16} />{t0.symbol}</span>
+              <span className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees0 > 0 ? `+${fees0.toFixed(8)}` : "0.00"}</span>
+            </div>
+            <div className="flex justify-between py-1">
+              <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t1} size={16} />{t1.symbol}</span>
+              <span className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees1 > 0 ? `+${fees1.toFixed(8)}` : "0.00"}</span>
+            </div>
+          </div>
+
+          <div className="mb-4 rounded border border-[#E8A849]/20 bg-[#E8A849]/5 px-3 py-2">
+            <p className="font-family-ThaleahFat text-xs leading-relaxed text-[#E8A849]">
+              {hasAny
+                ? `⚠ THIS WILL SEND YOUR ACCRUED FEES TO YOUR WALLET. POSITION NFT #${pos.tokenId} STAYS INTACT — YOUR LIQUIDITY KEEPS EARNING.`
+                : `NO FEES ACCRUED YET. YOU CAN STILL SUBMIT — THE TX WILL JUST BE A NO-OP. FEES ACCRUE WHEN SWAPS OCCUR THROUGH YOUR PRICE RANGE.`}
+            </p>
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={onCancel} className="font-family-ThaleahFat flex-1 cursor-pointer rounded-lg border-2 border-[#5D3A1F] bg-[#3A1F0E] px-4 py-3 text-base tracking-wider text-[#C49A6C] transition-all hover:scale-[1.01]">
+              CANCEL
+            </button>
+            <button onClick={onConfirm} disabled={collecting} className="font-family-ThaleahFat bg-peach-500 flex-1 cursor-pointer rounded-lg px-4 py-3 text-base tracking-wider text-black shadow-[0px_-3px_0px_0px_#C97E00_inset] transition-all hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100">
+              {collecting ? "COLLECTING..." : "CONFIRM COLLECT"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 };
 
@@ -664,6 +727,7 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
   const [enriched, setEnriched] = useState<EnrichedPosition[]>([]);
   const [enriching, setEnriching] = useState(false);
   const [removeModal, setRemoveModal] = useState<LiquidityPosition | null>(null);
+  const [collectModal, setCollectModal] = useState<LiquidityPosition | null>(null);
 
   useEffect(() => {
     if (positions.length === 0) { setEnriched([]); return; }
@@ -725,6 +789,7 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
   const handleCollect = async (pos: LiquidityPosition) => {
     if (!address || collecting) return;
     setCollecting(pos.tokenId);
+    setCollectModal(null);
     setTxMsg("Collecting fees...");
     try {
       const { collectFees } = await import("@/lib/pushchain/amm");
@@ -797,6 +862,17 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
         ) : null;
       })()}
 
+      {collectModal && (() => {
+        const t0 = collectModal.token0Info || getTokenByAddress(collectModal.token0);
+        const t1 = collectModal.token1Info || getTokenByAddress(collectModal.token1);
+        const f0 = t0 ? Number(ethers.formatUnits(collectModal.tokensOwed0, t0.decimals)) : 0;
+        const f1 = t1 ? Number(ethers.formatUnits(collectModal.tokensOwed1, t1.decimals)) : 0;
+        return t0 && t1 ? (
+          <CollectFeesModal pos={collectModal} t0={t0} t1={t1} fees0={f0} fees1={f1}
+            collecting={collecting === collectModal.tokenId} onConfirm={() => handleCollect(collectModal)} onCancel={() => setCollectModal(null)} />
+        ) : null;
+      })()}
+
       {txMsg && (
         <div className="relative rounded px-4 py-3 text-center">
           <Image src="/quest/header-quest-bg.png" alt="" width={200} height={200} className="absolute inset-0 z-[-1] h-full w-full rounded" />
@@ -808,7 +884,7 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
       <div className="grid grid-cols-3 gap-2">
         {[
           { l: "TOTAL DEPOSITED", v: enriched.length > 0 ? `${enriched.reduce((s, e) => s + e.amount0, 0).toFixed(4)} / ${enriched.reduce((s, e) => s + e.amount1, 0).toFixed(4)}` : "...", c: "text-peach-300" },
-          { l: "UNCLAIMED FEES", v: (totalFees0 > 0 || totalFees1 > 0) ? `+${totalFees0.toFixed(4)} / +${totalFees1.toFixed(4)}` : "NONE", c: totalFees0 > 0 || totalFees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400" },
+          { l: "UNCLAIMED FEES", v: (totalFees0 > 0 || totalFees1 > 0) ? `+${totalFees0.toFixed(8)} / +${totalFees1.toFixed(8)}` : "NONE", c: totalFees0 > 0 || totalFees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400" },
           { l: "POSITIONS", v: `${activeCount} ACTIVE`, c: "text-peach-300" },
         ].map((s, i) => (
           <div key={i} className="relative rounded px-3 py-2 text-center">
@@ -884,26 +960,20 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
               {/* Unclaimed fees */}
               {t0 && t1 && (
                 <div className="mb-2 rounded border-2 border-[#3A1F0E] bg-black/15 px-3 py-2">
-                  <div className="mb-1 flex items-center justify-between">
+                  <div className="mb-1 flex items-center">
                     <span className="font-family-ThaleahFat text-sm text-[#E8A849]">UNCLAIMED FEES</span>
-                    {hasFees && (
-                      <button onClick={() => handleCollect(pos)} disabled={collecting === pos.tokenId}
-                        className="font-family-ThaleahFat cursor-pointer rounded bg-[#E8A849] px-2.5 py-0.5 text-xs text-[#3A1F0E] transition-all hover:scale-105 disabled:opacity-50">
-                        {collecting === pos.tokenId ? "..." : "COLLECT"}
-                      </button>
-                    )}
                   </div>
                   <div className="flex gap-4">
                     <div>
                       <div className="font-family-ThaleahFat text-sm text-gray-300">{t0.symbol}</div>
                       <div className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>
-                        {fees0 > 0 ? `+${fees0.toFixed(6)}` : "0.00"}
+                        {fees0 > 0 ? `+${fees0.toFixed(8)}` : "0.00"}
                       </div>
                     </div>
                     <div>
                       <div className="font-family-ThaleahFat text-sm text-gray-300">{t1.symbol}</div>
                       <div className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>
-                        {fees1 > 0 ? `+${fees1.toFixed(6)}` : "0.00"}
+                        {fees1 > 0 ? `+${fees1.toFixed(8)}` : "0.00"}
                       </div>
                     </div>
                   </div>
@@ -924,13 +994,22 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
                 ))}
               </div>
 
-              {/* Remove button */}
-              {hasLiq && (
-                <button onClick={() => setRemoveModal(pos)} disabled={removing === pos.tokenId}
-                  className="font-family-ThaleahFat w-full cursor-pointer rounded-lg bg-red-600 px-4 py-2.5 text-lg tracking-wider text-white shadow-[0px_-3px_0px_0px_#991B1B_inset] transition-all hover:scale-[1.01] disabled:opacity-50">
-                  {removing === pos.tokenId ? "REMOVING..." : "REMOVE LIQUIDITY"}
+              {/* Action buttons */}
+              <div className="flex flex-col gap-2">
+                <button
+                  onClick={() => setCollectModal(pos)}
+                  disabled={collecting === pos.tokenId}
+                  className="font-family-ThaleahFat bg-peach-500 w-full cursor-pointer rounded-lg px-4 py-2.5 text-lg tracking-wider text-black shadow-[0px_-3px_0px_0px_#C97E00_inset] transition-all hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:scale-100"
+                >
+                  {collecting === pos.tokenId ? "COLLECTING..." : "COLLECT FEES"}
                 </button>
-              )}
+                {hasLiq && (
+                  <button onClick={() => setRemoveModal(pos)} disabled={removing === pos.tokenId}
+                    className="font-family-ThaleahFat w-full cursor-pointer rounded-lg bg-red-600 px-4 py-2.5 text-lg tracking-wider text-white shadow-[0px_-3px_0px_0px_#991B1B_inset] transition-all hover:scale-[1.01] disabled:opacity-50">
+                    {removing === pos.tokenId ? "REMOVING..." : "REMOVE LIQUIDITY"}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         );
