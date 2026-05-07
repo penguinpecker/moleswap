@@ -80,6 +80,13 @@ function getChainInfo(originChain: string | null): ChainInfo {
   );
 }
 
+function getChainInfoByHexId(hexId: string | null): ChainInfo | undefined {
+  if (!hexId) return undefined;
+  return SUPPORTED_CHAINS.find(
+    (c) => c.hexId?.toLowerCase() === hexId.toLowerCase()
+  );
+}
+
 async function switchEthereumChain(chain: ChainInfo): Promise<boolean> {
   if (!chain.hexId || typeof window === "undefined" || !window.ethereum)
     return false;
@@ -117,9 +124,25 @@ export function ChainSelectorButton() {
   const [open, setOpen] = useState(false);
   const [switching, setSwitching] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
+  const [liveHexChainId, setLiveHexChainId] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  const currentChain = getChainInfo(originChain);
+  // Track MetaMask's live chain — originChain is frozen at login time and
+  // never reflects wallet_switchEthereumChain calls.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.ethereum) return;
+    const onChainChanged = (id: string) => setLiveHexChainId(id);
+    window.ethereum
+      .request({ method: "eth_chainId" })
+      .then((id: string) => setLiveHexChainId(id))
+      .catch(() => {});
+    window.ethereum.on("chainChanged", onChainChanged);
+    return () => window.ethereum?.removeListener("chainChanged", onChainChanged);
+  }, []);
+
+  // Prefer the live MetaMask chainId over the PushChain SDK's frozen originChain
+  const currentChain =
+    getChainInfoByHexId(liveHexChainId) ?? getChainInfo(originChain);
   const isSolanaWallet = originChain?.startsWith("solana:");
 
   useEffect(() => {
