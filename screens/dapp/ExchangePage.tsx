@@ -503,23 +503,6 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     };
   }, [toToken, pushWallet.originChain, pushWallet.origin]);
 
-  // Auto-prompt for recipient address when the TO chain can't be covered by
-  // the connected wallet. E.g. a Solana-only user picking an EVM destination
-  // has no EVM address we can derive — they must supply one manually.
-  useEffect(() => {
-    if (!pushWallet.isConnected || !toChainName) return;
-    const toIsSolana = toChainName === "Solana";
-    const toIsPushChain = toChainName === "Push Chain";
-    // Push Chain always works — every user gets a UEA (EVM address on PushChain)
-    if (toIsPushChain) return;
-    // Solana destination with EVM wallet, or EVM destination with Solana wallet
-    const mismatch = (toIsSolana && isEvmWallet) || (!toIsSolana && isSolanaWallet);
-    if (mismatch) {
-      setRecipientAddress("");
-      setIsEditingRecipient(true);
-    }
-  }, [toChainName, isSolanaWallet, isEvmWallet, pushWallet.isConnected]);
-
   // ----- Amount -> wei (kept) -----
   const amountWei = useMemo(() => {
     const decimals = fromTokenMeta?.decimals ?? 18;
