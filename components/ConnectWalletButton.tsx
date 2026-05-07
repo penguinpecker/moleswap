@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { LogOut, Copy, Check, ChevronDown } from "lucide-react";
 import { usePushWalletContext, usePushChainClient, PushUI } from "@pushchain/ui-kit";
+import { ChainSelectorButton } from "./ChainSelectorButton";
 
 export function ConnectWalletButton() {
   const walletCtx = usePushWalletContext();
@@ -80,7 +81,15 @@ export function ConnectWalletButton() {
 
   // --- CONNECTED ---
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="flex items-center">
+      {/* Chain network selector */}
+      <ChainSelectorButton />
+
+      {/* Vertical divider */}
+      <div className="mx-0.5 h-6 w-px bg-[#523525]" />
+
+      {/* Wallet address + dropdown */}
+      <div className="relative" ref={menuRef}>
       <button
         onClick={() => setShowMenu(!showMenu)}
         className="font-family-ThaleahFat flex cursor-pointer items-center gap-2 px-5 py-3 text-xl tracking-wider text-black transition-all hover:scale-[1.02]"
@@ -131,6 +140,7 @@ export function ConnectWalletButton() {
           </button>
         </div>
       )}
+      </div>
     </div>
   );
 }
