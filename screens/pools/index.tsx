@@ -28,6 +28,11 @@ function getSwapUrl(fromAddress: string, toAddress: string): string {
   return `/dapp?${params.toString()}`;
 }
 
+const fmtFee = (n: number): string => {
+  if (n === 0) return "0.00";
+  return n.toFixed(20).replace(/\.?0+$/, "");
+};
+
 const fmt = (n: number) => {
   if (!Number.isFinite(n) || isNaN(n)) return "0.00";
   if (n < 0) return "0.00";
@@ -618,11 +623,11 @@ const RemoveLiquidityModal = ({ pos, ep, t0, t1, fees0, fees1, onConfirm, onCanc
             <div className="font-family-ThaleahFat mb-2 flex items-center gap-2 text-sm text-[#E8A849]">FEES COLLECTED <span className="flex-1 border-t border-white/5" /></div>
             <div className="flex justify-between py-1">
               <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t0} size={16} />{t0.symbol} FEES</span>
-              <span className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees0 > 0 ? `+${fees0.toFixed(8)}` : "0.00"}</span>
+              <span className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees0 > 0 ? `+${fmtFee(fees0)}` : "0.00"}</span>
             </div>
             <div className="flex justify-between py-1">
               <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t1} size={16} />{t1.symbol} FEES</span>
-              <span className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees1 > 0 ? `+${fees1.toFixed(8)}` : "0.00"}</span>
+              <span className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees1 > 0 ? `+${fmtFee(fees1)}` : "0.00"}</span>
             </div>
           </div>
 
@@ -685,11 +690,11 @@ const CollectFeesModal = ({ pos, t0, t1, fees0, fees1, onConfirm, onCancel, coll
             <div className="font-family-ThaleahFat mb-2 flex items-center gap-2 text-sm text-[#E8A849]">UNCLAIMED FEES <span className="flex-1 border-t border-white/5" /></div>
             <div className="flex justify-between py-1">
               <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t0} size={16} />{t0.symbol}</span>
-              <span className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees0 > 0 ? `+${fees0.toFixed(8)}` : "0.00"}</span>
+              <span className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees0 > 0 ? `+${fmtFee(fees0)}` : "0.00"}</span>
             </div>
             <div className="flex justify-between py-1">
               <span className="font-family-ThaleahFat flex items-center gap-2 text-base text-gray-200"><TokenIcon token={t1} size={16} />{t1.symbol}</span>
-              <span className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees1 > 0 ? `+${fees1.toFixed(8)}` : "0.00"}</span>
+              <span className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>{fees1 > 0 ? `+${fmtFee(fees1)}` : "0.00"}</span>
             </div>
           </div>
 
@@ -884,7 +889,7 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
       <div className="grid grid-cols-3 gap-2">
         {[
           { l: "TOTAL DEPOSITED", v: enriched.length > 0 ? `${enriched.reduce((s, e) => s + e.amount0, 0).toFixed(4)} / ${enriched.reduce((s, e) => s + e.amount1, 0).toFixed(4)}` : "...", c: "text-peach-300" },
-          { l: "UNCLAIMED FEES", v: (totalFees0 > 0 || totalFees1 > 0) ? `+${totalFees0.toFixed(8)} / +${totalFees1.toFixed(8)}` : "NONE", c: totalFees0 > 0 || totalFees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400" },
+          { l: "UNCLAIMED FEES", v: (totalFees0 > 0 || totalFees1 > 0) ? `+${fmtFee(totalFees0)} / +${fmtFee(totalFees1)}` : "NONE", c: totalFees0 > 0 || totalFees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400" },
           { l: "POSITIONS", v: `${activeCount} ACTIVE`, c: "text-peach-300" },
         ].map((s, i) => (
           <div key={i} className="relative rounded px-3 py-2 text-center">
@@ -967,13 +972,13 @@ const PositionsTab = ({ positions, loading, isConnected, walletCtx, pushChainCli
                     <div>
                       <div className="font-family-ThaleahFat text-sm text-gray-300">{t0.symbol}</div>
                       <div className={`font-family-ThaleahFat text-base ${fees0 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>
-                        {fees0 > 0 ? `+${fees0.toFixed(8)}` : "0.00"}
+                        {fees0 > 0 ? `+${fmtFee(fees0)}` : "0.00"}
                       </div>
                     </div>
                     <div>
                       <div className="font-family-ThaleahFat text-sm text-gray-300">{t1.symbol}</div>
                       <div className={`font-family-ThaleahFat text-base ${fees1 > 0 ? "text-[#6DBB3E]" : "text-gray-400"}`}>
-                        {fees1 > 0 ? `+${fees1.toFixed(8)}` : "0.00"}
+                        {fees1 > 0 ? `+${fmtFee(fees1)}` : "0.00"}
                       </div>
                     </div>
                   </div>
