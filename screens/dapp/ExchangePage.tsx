@@ -59,7 +59,6 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   const [chains, setChains] = useState<RelayChain[]>([]);
   const [fromChainId, setFromChainId] = useState<string>("");
   const [toChainId, setToChainId] = useState<string>("");
-  const [toChainName, setToChainName] = useState<string>("");
 
   const [loadingChains, setLoadingChains] = useState(false);
   const [quote, setQuote] = useState<any>(null);
@@ -431,13 +430,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     [chains, fromChainId, fromToken],
   );
   const toChain = useMemo(
-    () => (toChainName ? chains.find((c) => c.name === toChainName) : null)
-      || chains.find((c) =>
-        getTokensForChain(c).some((t) => t.address?.toLowerCase() === toToken.toLowerCase())
-      )
+    () => chains.find((c) => c.name === "Push Chain")
       || chains.find((c) => String(c.id) === toChainId)
       || chains[0],
-    [chains, toChainId, toToken, toChainName],
+    [chains, toChainId],
   );
 
   const fromTokens = useMemo(
@@ -1332,8 +1328,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     setSearchQuery("");
     setSearchQueryNetwork("");
     if (mode === "to") {
-      // Solana users see Solana + Push Chain groups; EVM users see Push Chain only.
-      setSelectedNetwork(pushWallet.originChain?.startsWith("solana:") ? "Solana" : "Push Chain");
+      setSelectedNetwork("Push Chain");
       return;
     }
     // Find the chain group that contains the currently selected token for this side
@@ -1366,11 +1361,10 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   const filteredNetworks = useMemo(() => {
     let src: typeof chains;
     if (selectionMode === "to") {
-      src = isSolanaWallet
-        ? chains.filter((c) => c.name === "Solana" || c.name === "Push Chain")
-        : chains.filter((c) => c.name === "Push Chain");
+      // TO is always Push Chain — all tokens are PRC-20s that land there
+      src = chains.filter((c) => c.name === "Push Chain");
     } else {
-      // FROM: restrict to wallet-compatible chains
+      // FROM: only show chains the connected wallet can sign for
       if (isSolanaWallet) {
         src = chains.filter((c) => c.name === "Solana");
       } else if (isEvmWallet) {
@@ -1386,12 +1380,24 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     );
   }, [chains, searchQueryNetwork, selectionMode, isSolanaWallet, isEvmWallet]);
 
-  // Tokens for the currently selected network in the modal.
-  // Both FROM and TO show only the selected network's tokens so the user
-  // always picks from the right chain group (no cross-chain USDT confusion).
   const modalChain =
     chains.find((c) => c.name === selectedNetwork) || null;
   const modalTokens = useMemo(() => {
+    if (selectionMode === "to") {
+      // TO is Push Chain — show every PRC-20 across all source-chain groups
+      const seen = new Set<string>();
+      const merged: ReturnType<typeof getTokensForChain> = [];
+      for (const c of chains) {
+        for (const t of getTokensForChain(c)) {
+          const key = (t.address || "").toLowerCase();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          merged.push(t);
+        }
+      }
+      return merged;
+    }
+    // FROM: show only the selected network's tokens
     return modalChain ? getTokensForChain(modalChain) : [];
   }, [modalChain, chains, selectionMode]);
 
@@ -1556,7 +1562,6 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     } else if (selectionMode === "to") {
       setToChainId("42101");
       setToToken(tokenAddress);
-      setToChainName(selectedNetwork);
     }
     setSelectionMode("none");
     setSelectedNetwork("");
@@ -2026,7 +2031,6 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                       setFromChainId(toChainId);
                       setToToken(tempToken);
                       setToChainId(tempChain);
-                      setToChainName("");
                     }}
                     className="absolute inset-0 left-[50%] flex h-14 w-14 translate-x-[-50%] translate-y-[-50%] cursor-pointer items-center justify-center p-2 transition-all hover:scale-105"
                   >
@@ -2101,7 +2105,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                         )}
                       </div>
                       <p className="font-family-ThaleahFat text-sm font-bold tracking-wider text-[#EEEEEE] uppercase sm:text-xl lg:text-3xl truncate">
-                        {toToken ? (toChain?.displayName || toChain?.name || "Push Chain") : "Select Network"}{" "}
+                        {toToken ? "Push Chain" : "Select Network"}{" "}
                         / {(toTokenMeta as any)?.symbol ||
                           displaySymbolOf(toTokenMeta) ||
                           "Select Token"}
