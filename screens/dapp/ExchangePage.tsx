@@ -1327,12 +1327,9 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     setSelectionMode(mode);
     setSearchQuery("");
     setSearchQueryNetwork("");
-    // Destination is ALWAYS Push Chain — proceeds of every swap land as a
-    // PRC-20 on Push (no outbound bridge today). Hard-code Push Chain for
-    // the TO picker so users can't select Ethereum/Solana/Base/Arbitrum/BNB
-    // destinations that would mislead them about where the asset ends up.
     if (mode === "to") {
-      setSelectedNetwork("Push Chain");
+      // Solana users see Solana + Push Chain groups; EVM users see Push Chain only.
+      setSelectedNetwork(pushWallet.originChain?.startsWith("solana:") ? "Solana" : "Push Chain");
       return;
     }
     // Find the chain group that contains the currently selected token for this side
@@ -1359,15 +1356,20 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   //       Ethereum/Solana/etc. as destinations would lie about where the
   //       asset ends up.
   const filteredNetworks = useMemo(() => {
-    const src = selectionMode === "to"
-      ? chains.filter((c) => c.name === "Push Chain")
-      : chains;
+    let src: typeof chains;
+    if (selectionMode === "to") {
+      src = pushWallet.originChain?.startsWith("solana:")
+        ? chains.filter((c) => c.name === "Solana" || c.name === "Push Chain")
+        : chains.filter((c) => c.name === "Push Chain");
+    } else {
+      src = chains;
+    }
     return src.filter((net) =>
       (net.displayName || net.name || "")
         .toLowerCase()
         .includes(searchQueryNetwork.toLowerCase()),
     );
-  }, [chains, searchQueryNetwork, selectionMode]);
+  }, [chains, searchQueryNetwork, selectionMode, pushWallet.originChain]);
 
   // Tokens for the currently selected network in the modal.
   // For TO mode we merge every swappable token (across every source chain)
@@ -2095,7 +2097,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                         )}
                       </div>
                       <p className="font-family-ThaleahFat text-sm font-bold tracking-wider text-[#EEEEEE] uppercase sm:text-xl lg:text-3xl truncate">
-                        {toToken ? "Push Chain" : "Select Network"}{" "}
+                        {toToken ? (toChain?.displayName || toChain?.name || "Push Chain") : "Select Network"}{" "}
                         / {(toTokenMeta as any)?.symbol ||
                           displaySymbolOf(toTokenMeta) ||
                           "Select Token"}
