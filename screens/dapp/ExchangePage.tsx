@@ -503,6 +503,23 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     };
   }, [toToken, pushWallet.originChain, pushWallet.origin]);
 
+  // Auto-prompt for recipient address when the TO chain can't be covered by
+  // the connected wallet. E.g. a Solana-only user picking an EVM destination
+  // has no EVM address we can derive — they must supply one manually.
+  useEffect(() => {
+    if (!pushWallet.isConnected || !toChainName) return;
+    const toIsSolana = toChainName === "Solana";
+    const toIsPushChain = toChainName === "Push Chain";
+    // Push Chain always works — every user gets a UEA (EVM address on PushChain)
+    if (toIsPushChain) return;
+    // Solana destination with EVM wallet, or EVM destination with Solana wallet
+    const mismatch = (toIsSolana && isEvmWallet) || (!toIsSolana && isSolanaWallet);
+    if (mismatch) {
+      setRecipientAddress("");
+      setIsEditingRecipient(true);
+    }
+  }, [toChainName, isSolanaWallet, isEvmWallet, pushWallet.isConnected]);
+
   // ----- Amount -> wei (kept) -----
   const amountWei = useMemo(() => {
     const decimals = fromTokenMeta?.decimals ?? 18;
@@ -1352,28 +1369,39 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   };
 
   // List of networks filtered by search.
+  // FROM: only chains the connected wallet can actually sign for.
+  //   Solana wallet → Solana only
+  //   EVM wallet    → all EVM chains (ETH/Base/Arb/BNB/Push Chain), no Solana
+  //   Not connected → show all (no wallet to constrain)
   //
-  // FROM: show every chain (user may hold real assets on Ethereum / Solana /
-  //       Base / Arbitrum / BNB to bridge IN, plus Push Chain natives).
-  // TO:   only Push Chain. Destination of every swap is a PRC-20 sitting on
-  //       Push Chain — no outbound bridge is wired today, so listing
-  //       Ethereum/Solana/etc. as destinations would lie about where the
-  //       asset ends up.
+  // TO: chains the user can receive on given their wallet type.
+  //   Solana wallet → Solana + Push Chain
+  //   EVM wallet    → Push Chain only (current architecture; outbound not wired)
+  const isSolanaWallet = pushWallet.originChain?.startsWith("solana:");
+  const isEvmWallet = pushWallet.originChain?.startsWith("eip155:");
+
   const filteredNetworks = useMemo(() => {
     let src: typeof chains;
     if (selectionMode === "to") {
-      src = pushWallet.originChain?.startsWith("solana:")
+      src = isSolanaWallet
         ? chains.filter((c) => c.name === "Solana" || c.name === "Push Chain")
         : chains.filter((c) => c.name === "Push Chain");
     } else {
-      src = chains;
+      // FROM: restrict to wallet-compatible chains
+      if (isSolanaWallet) {
+        src = chains.filter((c) => c.name === "Solana");
+      } else if (isEvmWallet) {
+        src = chains.filter((c) => c.name !== "Solana");
+      } else {
+        src = chains;
+      }
     }
     return src.filter((net) =>
       (net.displayName || net.name || "")
         .toLowerCase()
         .includes(searchQueryNetwork.toLowerCase()),
     );
-  }, [chains, searchQueryNetwork, selectionMode, pushWallet.originChain]);
+  }, [chains, searchQueryNetwork, selectionMode, isSolanaWallet, isEvmWallet]);
 
   // Tokens for the currently selected network in the modal.
   // Both FROM and TO show only the selected network's tokens so the user
