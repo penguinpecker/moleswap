@@ -10,7 +10,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "ci": "npm run test && npm run build",
-    "postinstall": "sed -i.bak 's/walletData.wallet.providerName/walletData?.wallet?.providerName/g' node_modules/@pushchain/ui-kit/src/lib/helpers/txnAuthGuard.js 2>/dev/null || true"
+    "postinstall": "node scripts/patch-pushchain-ui-kit.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
