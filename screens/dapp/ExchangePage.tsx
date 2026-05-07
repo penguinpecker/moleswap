@@ -59,6 +59,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   const [chains, setChains] = useState<RelayChain[]>([]);
   const [fromChainId, setFromChainId] = useState<string>("");
   const [toChainId, setToChainId] = useState<string>("");
+  const [toChainName, setToChainName] = useState<string>("");
 
   const [loadingChains, setLoadingChains] = useState(false);
   const [quote, setQuote] = useState<any>(null);
@@ -430,10 +431,13 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     [chains, fromChainId, fromToken],
   );
   const toChain = useMemo(
-    () => chains.find((c) =>
-      getTokensForChain(c).some((t) => t.address?.toLowerCase() === toToken.toLowerCase())
-    ) || chains.find((c) => String(c.id) === toChainId) || chains[0],
-    [chains, toChainId, toToken],
+    () => (toChainName ? chains.find((c) => c.name === toChainName) : null)
+      || chains.find((c) =>
+        getTokensForChain(c).some((t) => t.address?.toLowerCase() === toToken.toLowerCase())
+      )
+      || chains.find((c) => String(c.id) === toChainId)
+      || chains[0],
+    [chains, toChainId, toToken, toChainName],
   );
 
   const fromTokens = useMemo(
@@ -1372,24 +1376,11 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
   }, [chains, searchQueryNetwork, selectionMode, pushWallet.originChain]);
 
   // Tokens for the currently selected network in the modal.
-  // For TO mode we merge every swappable token (across every source chain)
-  // into the Push Chain group, because that's where they all live as PRC-20s.
+  // Both FROM and TO show only the selected network's tokens so the user
+  // always picks from the right chain group (no cross-chain USDT confusion).
   const modalChain =
     chains.find((c) => c.name === selectedNetwork) || null;
   const modalTokens = useMemo(() => {
-    if (selectionMode === "to") {
-      const seen = new Set<string>();
-      const merged: ReturnType<typeof getTokensForChain> = [];
-      for (const c of chains) {
-        for (const t of getTokensForChain(c)) {
-          const key = (t.address || "").toLowerCase();
-          if (!key || seen.has(key)) continue;
-          seen.add(key);
-          merged.push(t);
-        }
-      }
-      return merged;
-    }
     return modalChain ? getTokensForChain(modalChain) : [];
   }, [modalChain, chains, selectionMode]);
 
@@ -1554,6 +1545,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
     } else if (selectionMode === "to") {
       setToChainId("42101");
       setToToken(tokenAddress);
+      setToChainName(selectedNetwork);
     }
     setSelectionMode("none");
     setSelectedNetwork("");
@@ -2023,6 +2015,7 @@ export const ExchangePage = ({ onNext }: ExchangePageProps) => {
                       setFromChainId(toChainId);
                       setToToken(tempToken);
                       setToChainId(tempChain);
+                      setToChainName("");
                     }}
                     className="absolute inset-0 left-[50%] flex h-14 w-14 translate-x-[-50%] translate-y-[-50%] cursor-pointer items-center justify-center p-2 transition-all hover:scale-105"
                   >
