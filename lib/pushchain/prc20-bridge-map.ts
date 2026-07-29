@@ -18,8 +18,14 @@
  * registered in the SDK. Adding a token here only works if the SDK itself
  * recognizes the mapping.
  *
- * Regenerate this map whenever @pushchain/core is upgraded:
- *   scripts/regenerate-prc20-map.mjs  (see docs)
+ * Re-verify this map whenever @pushchain/core is upgraded — Push does re-deploy
+ * these testnet contracts across minor versions. The two files to diff are:
+ *   node_modules/@pushchain/core/src/lib/constants/tokens.js  (origin tokens,
+ *     via MOVEABLE_TOKENS / the MoveableTokenAccessor getters)
+ *   node_modules/@pushchain/core/src/lib/constants/chain.js   (PRC-20 addresses,
+ *     via SYNTHETIC_PUSH_ERC20[PUSH_NETWORK.TESTNET_DONUT])
+ * A symbol that the accessor doesn't expose for a chain throws rather than
+ * returning undefined, so a renamed symbol shows up as a silently-null bridge.
  */
 
 export interface Prc20BridgeInfo {
@@ -29,8 +35,13 @@ export interface Prc20BridgeInfo {
   originChain: string;
   /** SDK constant name, e.g. "ETHEREUM_SEPOLIA", used as a lookup key into MOVEABLE.TOKEN */
   originChainSdkName: "ETHEREUM_SEPOLIA" | "ARBITRUM_SEPOLIA" | "BASE_SEPOLIA" | "BNB_TESTNET" | "SOLANA_DEVNET";
-  /** Canonical token symbol on the origin chain, e.g. "ETH", "USDT", "SOL" — used as the key into MOVEABLE.TOKEN.{CHAIN} */
-  originSymbol: "ETH" | "SOL" | "USDT" | "USDC" | "WETH" | "stETH";
+  /**
+   * Canonical token symbol on the origin chain, e.g. "ETH", "USDT", "SOL" — used
+   * as the key into MOVEABLE.TOKEN.{CHAIN}. Must be a symbol the SDK actually
+   * exposes for that chain: the accessor throws on unknown symbols, e.g.
+   * BNB_TESTNET exposes BNB/USDT/USDC but NOT ETH (see the BNB note below).
+   */
+  originSymbol: "ETH" | "BNB" | "SOL" | "USDT" | "USDC" | "WETH" | "stETH" | "DAI";
   /** Number of decimals on the origin chain (may differ from PRC-20 decimals) */
   originDecimals: number;
   /** Origin address — for native tokens this is `0x0000...0000`, for ERC-20 it's the contract, for SPL it's the mint string */
@@ -43,7 +54,23 @@ export interface Prc20BridgeInfo {
 
 /**
  * Keyed by PRC-20 address (always lowercased for O(1) lookup).
- * Generated from @pushchain/core v5.1.2 SDK constants.
+ * Origin-chain data verified against @pushchain/core v6.0.20 SDK constants.
+ *
+ * MIGRATED for 6.0.20 (2026-07-29): Push re-deployed their testnet stables in
+ * 6.0.x, moving BOTH the origin-chain token and its Push Chain PRC-20. Because
+ * getSdkMoveableToken() resolves `funds.token` by (chain, symbol) against the
+ * LIVE SDK constants, leaving the 5.1.x PRC-20s keyed here would mint the 6.0.x
+ * token into the UEA while the swap leg still spent the 5.1.x one. Both sides
+ * were moved together — keys here, and TOKENS/POOLS in ./contracts:
+ *
+ *              origin token                    PRC-20 key
+ *   USDT.eth   0xC4230aEa… (was 0x7169D388…)   0x0f97A213… (was 0xCA0C5E6F…)
+ *   USDT.arb   0xE3092852… (was 0x1419d7C7…)   0xFE6E9DF2… (was 0x76Ad0833…)
+ *   USDT.base  0x4D7646B9… (was 0x9FF5a186…)   0x14882380… (was 0x2C455189…)
+ *   USDT.bnb   0xE935d9c9… (was 0xBC14F348…)   0x731aF1Da… (was 0x2f98B423…)
+ *
+ * Native assets needed no change: pETH / pETH.arb / pETH.base / pSOL / pBNB and
+ * both Solana PRC-20s (USDT.sol, USDC.sol) kept their addresses across 6.0.x.
  */
 export const PRC20_BRIDGE_MAP: Record<string, Prc20BridgeInfo> = {
   // ─── Ethereum Sepolia ─────────────────────────────────────────────────
@@ -57,13 +84,14 @@ export const PRC20_BRIDGE_MAP: Record<string, Prc20BridgeInfo> = {
     mechanism: "native",
     uiLabel: "Ethereum",
   },
-  "0xca0c5e6f002a389e1580f0db7cd06e4549b5f9d3": {
-    prc20Address: "0xCA0C5E6F002A389E1580F0DB7cd06e4549B5F9d3",
+  "0x0f97a213207703923f5f0c613c9827f7c9a0f96b": {
+    prc20Address: "0x0f97A213207703923F5f0C613C9827f7C9A0f96B",
     originChain: "eip155:11155111",
     originChainSdkName: "ETHEREUM_SEPOLIA",
     originSymbol: "USDT",
     originDecimals: 6,
-    originAddress: "0x7169D38820dfd117C3FA1f22a697dBA58d90BA06",
+    // Re-deployed by Push in SDK 6.0.2 (was 0x7169D388…0BA06 through 5.1.x).
+    originAddress: "0xC4230aEaFcF6b8B49a7b4e53886420f00ff71876",
     mechanism: "approve",
     uiLabel: "Ethereum",
   },
@@ -79,13 +107,14 @@ export const PRC20_BRIDGE_MAP: Record<string, Prc20BridgeInfo> = {
     mechanism: "native",
     uiLabel: "Arbitrum",
   },
-  "0x76ad08339df606beede06f90e3faf82c5b2fb2e9": {
-    prc20Address: "0x76Ad08339dF606BeEDe06f90e3FaF82c5b2fb2E9",
+  "0xfe6e9df2bbc9ce05d98b83b1365df6dca9951891": {
+    prc20Address: "0xFE6E9DF2BbC9ce05D98b83B1365df6DcA9951891",
     originChain: "eip155:421614",
     originChainSdkName: "ARBITRUM_SEPOLIA",
     originSymbol: "USDT",
     originDecimals: 6,
-    originAddress: "0x1419d7C74D234fA6B73E06A2ce7822C1d37922f0",
+    // Re-deployed by Push in SDK 6.0.2 (was 0x1419d7C7…22f0 through 5.1.x).
+    originAddress: "0xE30928528f52CAEeB75fB07837e22d77D47e9c07",
     mechanism: "approve",
     uiLabel: "Arbitrum",
   },
@@ -101,35 +130,46 @@ export const PRC20_BRIDGE_MAP: Record<string, Prc20BridgeInfo> = {
     mechanism: "native",
     uiLabel: "Base",
   },
-  "0x2c455189d2af6643b924a981a9080ccc63d5a567": {
-    prc20Address: "0x2C455189D2af6643B924A981a9080CcC63d5a567",
+  "0x148823809b853e1db187bc09a9ac909bc42f971a": {
+    prc20Address: "0x148823809B853e1db187BC09A9ac909BC42F971a",
     originChain: "eip155:84532",
     originChainSdkName: "BASE_SEPOLIA",
     originSymbol: "USDT",
     originDecimals: 6,
-    originAddress: "0x9FF5a186f53F6E6964B00320Da1D2024DE11E0cB",
+    // Re-deployed by Push in SDK 6.0.2 (was 0x9FF5a186…E0cB through 5.1.x).
+    originAddress: "0x4D7646B9eE3D68F4b0F135B5cbc66B00819F6b61",
     mechanism: "approve",
     uiLabel: "Base",
   },
 
   // ─── BNB Testnet ──────────────────────────────────────────────────────
+  // The token at 0x7a9082dA… was `pETH_BNB` in SDK 5.1.x, which is why it was
+  // long treated as "ETH bridged from BNB Chain". SDK 6.0.0 renamed it to
+  // `pBNB` and dropped the ETH accessor from BNB_TESTNET entirely — the chain
+  // now exposes BNB/USDT/USDC. On-chain `symbol()` returns "pBNB", so the v6
+  // naming is the accurate one: this really is native BNB.
+  //
+  // originSymbol MUST be "BNB" here: `MOVEABLE.TOKEN.BNB_TESTNET.ETH` throws
+  // under 6.x, which getSdkMoveableToken swallows into a null — silently
+  // disabling the bridge instead of bridging the wrong asset.
   "0x7a9082da308f3fa005bea7db0d203b3b86664e36": {
     prc20Address: "0x7a9082dA308f3fa005beA7dB0d203b3b86664E36",
     originChain: "eip155:97",
     originChainSdkName: "BNB_TESTNET",
-    originSymbol: "ETH",
+    originSymbol: "BNB",
     originDecimals: 18,
     originAddress: "0x0000000000000000000000000000000000000000",
     mechanism: "native",
     uiLabel: "BNB Chain",
   },
-  "0x2f98b4235fd2ba0173a2b056d722879360b12e7b": {
-    prc20Address: "0x2f98B4235FD2BA0173a2B056D722879360B12E7b",
+  "0x731af1da5365259d27528557ee4afba4bac90ef2": {
+    prc20Address: "0x731aF1Da5365259d27528557EE4aFBA4baC90ef2",
     originChain: "eip155:97",
     originChainSdkName: "BNB_TESTNET",
     originSymbol: "USDT",
     originDecimals: 6,
-    originAddress: "0xBC14F348BC9667be46b35Edc9B68653d86013DC5",
+    // Re-deployed by Push in SDK 6.0.2 (was 0xBC14F348…3DC5 through 5.1.x).
+    originAddress: "0xE935d9c9C24D02E61186c640cc01d713C876d40F",
     mechanism: "approve",
     uiLabel: "BNB Chain",
   },
@@ -159,9 +199,12 @@ export const PRC20_BRIDGE_MAP: Record<string, Prc20BridgeInfo> = {
 
 /**
  * Look up bridge info for a PRC-20 address. Returns null if the token isn't
- * officially bridge-able via Push Chain's Universal Gateway yet (e.g. USDC
- * doesn't have a PRC-20 mapping in the SDK as of v5.1.2 — bridging USDC will
- * fail until the SDK ships the mapping).
+ * officially bridge-able via Push Chain's Universal Gateway yet.
+ *
+ * As of v6.0.20 the SDK does expose USDC (plus WETH, stETH and a Solana DAI)
+ * as moveable tokens on every supported chain, so the old "USDC has no mapping"
+ * limitation is gone — but MoleSwap has no USDC entries here yet, so USDC still
+ * resolves to null and stays non-bridgeable in the UI.
  */
 export function getBridgeInfoForPrc20(prc20Address: string): Prc20BridgeInfo | null {
   if (!prc20Address) return null;

@@ -21,7 +21,7 @@ import { ethers } from "ethers";
 import { stringToBytes } from "viem";
 import abi from "@pushchain/core/src/lib/constants/abi/universalGatewayV0.json" with { type: "json" };
 
-// ── Push SVM gateway (from @pushchain/core 5.1.3) ──────────────
+// ── Push SVM gateway (from @pushchain/core 6.0.20; program id unchanged since 5.1.x) ──
 const SVM_GATEWAY_PROGRAM = abi.address; // CFVSincHYbETh2k7w6u1ENEkjbSLtveRCEBupKidw2VS
 const DEVNET  = "https://api.devnet.solana.com";
 const MAINNET = "https://api.mainnet-beta.solana.com";
